@@ -1,23 +1,38 @@
 import OpenAI from 'openai';
-import { AIResponse } from '@/types';
+import { AIResponse } from '../../../types';
 import { AIProviderInterface } from './base';
-import { getEnv } from '@/lib/env';
-import { logger } from '@/lib/logger';
-import { AI_CONFIG } from '@/config/constants';
+import { getEnv, getKeys } from '../../env';
+import { logger } from '../../logger';
+import { AI_CONFIG } from '../../../config/constants';
 
 export class OpenAIProvider implements AIProviderInterface {
+  private keys: string[] = [];
+  private currentKeyIndex = 0;
   private client: OpenAI | null = null;
   private readonly MAX_RETRIES = AI_CONFIG.MAX_RETRIES;
   private readonly RETRY_DELAY = AI_CONFIG.RETRY_DELAY_MS;
 
   constructor() {
     const env = getEnv();
-    if (env.OPENAI_API_KEY) {
+    this.keys = getKeys(env.OPENAI_API_KEY);
+    this.initClient();
+  }
+
+  private initClient() {
+    if (this.keys[this.currentKeyIndex]) {
       this.client = new OpenAI({
-        apiKey: env.OPENAI_API_KEY,
-        dangerouslyAllowBrowser: true, // Needed for client-side usage if not using a proxy
+        apiKey: this.keys[this.currentKeyIndex],
+        dangerouslyAllowBrowser: true,
       });
     }
+  }
+
+  private rotateKey() {
+    if (this.keys.length <= 1) return false;
+    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
+    this.initClient();
+    logger.info('ai-openai', `🔄 Rotated to OpenAI key #${this.currentKeyIndex + 1}`);
+    return true;
   }
 
   isConfigured(): boolean {
@@ -78,6 +93,11 @@ export class OpenAIProvider implements AIProviderInterface {
         logger.warn(`Retrying OpenAI request after ${waitTime / 1000}s...`);
         await this.wait(waitTime);
         return this.generateWithModel(modelName, messages, attempt + 1);
+      }
+
+      if (errorType === 'rate_limit' && this.rotateKey()) {
+        logger.info('ai-openai', '⚠️ Rate limited, retrying with rotated key...');
+        return this.generateWithModel(modelName, messages, attempt);
       }
 
       return null;

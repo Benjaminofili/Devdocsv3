@@ -1,11 +1,11 @@
 // src/lib/ai/orchestrator.ts
 
-import { AIProvider, AIResponse } from '@/types';
+import { AIProvider, AIResponse } from '../../types';
 import { AIProviderInterface } from './providers/base';
 import { OpenAIProvider } from './providers/openai';
 import { GeminiProvider } from './providers/gemini';
 import { GroqProvider } from './providers/groq';
-import { logger } from '@/lib/logger';
+import { logger } from '../logger';
 
 interface ProviderConfig {
   provider: AIProvider;

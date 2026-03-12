@@ -1,11 +1,11 @@
 // src/lib/ai/providers/gemini.ts
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { AIResponse } from '@/types';
+import { AIResponse } from '../../../types';
 import { AIProviderInterface } from './base';
-import { getEnv } from '@/lib/env';
-import { logger } from '@/lib/logger';
-import { AI_CONFIG, GEMINI_MODELS } from '@/config/constants';
+import { logger } from '../../logger';
+import { AI_CONFIG, GEMINI_MODELS } from '../../../config/constants';
+import { getEnv, getKeys } from '../../env';
 
 type ErrorType = 'rate_limit' | 'overloaded' | 'not_found' | 'network' | 'unknown';
 
@@ -15,15 +15,26 @@ interface GeminiError {
 }
 
 export class GeminiProvider implements AIProviderInterface {
+    private keys: string[] = [];
+    private currentKeyIndex = 0;
     private client: GoogleGenerativeAI | null = null;
     private readonly MAX_RETRIES = AI_CONFIG.MAX_RETRIES;
     private readonly RETRY_DELAY = AI_CONFIG.RETRY_DELAY_MS;
 
     constructor() {
         const env = getEnv();
-        if (env.GEMINI_API_KEY) {
-            this.client = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+        this.keys = getKeys(env.GEMINI_API_KEY);
+        if (this.keys.length > 0) {
+            this.client = new GoogleGenerativeAI(this.keys[0]);
         }
+    }
+
+    private rotateKey() {
+        if (this.keys.length <= 1) return false;
+        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
+        this.client = new GoogleGenerativeAI(this.keys[this.currentKeyIndex]);
+        logger.info('ai-gemini', `🔄 Rotated to Gemini key #${this.currentKeyIndex + 1}`);
+        return true;
     }
 
     isConfigured(): boolean {
@@ -110,6 +121,10 @@ Guidelines:
             }
 
             if (errorType === 'rate_limit') {
+                if (this.rotateKey()) {
+                    logger.info('ai-gemini', '⚠️ Rate limited, retrying with rotated key...');
+                    return this.generateWithModel(modelName, prompt, context, attempt);
+                }
                 throw new Error(`Gemini rate limited: ${errorMessage}`);
             }
 

@@ -1,7 +1,7 @@
 // src/lib/tiers/feature-flags.ts
 // Determines what features are available per tier
 
-import type { UserTier, WaitlistFeature } from '@/types'
+import type { UserTier, WaitlistFeature } from '../../types'
 import { TIER_CONFIGS } from './config'
 
 interface FeatureDefinition {

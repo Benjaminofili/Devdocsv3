@@ -1,6 +1,6 @@
 // src/lib/validators/cache.ts
 
-import { CACHE_CONFIG, INVALID_CONTENT_PATTERNS } from '@/config/constants';
+import { CACHE_CONFIG, INVALID_CONTENT_PATTERNS } from '../../config/constants';
 
 interface CachedResponse {
   content: string;

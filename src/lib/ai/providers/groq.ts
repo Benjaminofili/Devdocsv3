@@ -1,24 +1,39 @@
 // src/lib/ai/providers/groq.ts
 
 import Groq from 'groq-sdk';
-import { AIResponse } from '@/types';
+import { AIResponse } from '../../../types';
 import { AIProviderInterface } from './base';
-import { getEnv } from '@/lib/env';
-import { logger } from '@/lib/logger';
-import { GROQ_MODELS, AI_CONFIG } from '@/config/constants';
+import { getEnv, getKeys } from '../../env';
+import { logger } from '../../logger';
+import { GROQ_MODELS, AI_CONFIG } from '../../../config/constants';
 
 export class GroqProvider implements AIProviderInterface {
+    private keys: string[] = [];
+    private currentKeyIndex = 0;
     private client: Groq | null = null;
     private readonly models = [...GROQ_MODELS];
 
     constructor() {
         const env = getEnv();
-        if (env.GROQ_API_KEY) {
+        this.keys = getKeys(env.GROQ_API_KEY);
+        this.initClient();
+    }
+
+    private initClient() {
+        if (this.keys[this.currentKeyIndex]) {
             this.client = new Groq({
-                apiKey: env.GROQ_API_KEY,
+                apiKey: this.keys[this.currentKeyIndex],
                 dangerouslyAllowBrowser: true,
             });
         }
+    }
+
+    private rotateKey() {
+        if (this.keys.length <= 1) return false;
+        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
+        this.initClient();
+        logger.info('ai-groq', `🔄 Rotated to Groq key #${this.currentKeyIndex + 1}`);
+        return true;
     }
 
     isConfigured(): boolean {
@@ -69,6 +84,13 @@ Use markdown formatting appropriately.`;
                 }
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                const isRateLimit = errorMessage.toLowerCase().includes('rate limit') || (error as any)?.status === 429;
+                
+                if (isRateLimit && this.rotateKey()) {
+                    logger.info('ai-groq', '⚠️ Rate limited, retrying with rotated key...');
+                    return this.generate(prompt, context);
+                }
+                
                 logger.warn(`Groq ${model} failed:`, { error: errorMessage });
             }
         }

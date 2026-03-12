@@ -6,14 +6,14 @@ import { Redis } from '@upstash/redis'
 import { db } from '../firebase/config'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { getGenerationLimit } from './config'
-import { logger } from '@/lib/logger'
-import type { UserTier, UsageInfo, UsageCheckResult } from '@/types'
+import { logger } from '../logger'
+import type { UserTier, UsageInfo, UsageCheckResult } from '../../types'
 
 // ============================================
 // REDIS CLIENT
 // ============================================
 
-import { getEnv } from '@/lib/env'
+import { getEnv } from '../env'
 
 const env = getEnv()
 const redis = new Redis({

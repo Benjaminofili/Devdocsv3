@@ -1,7 +1,7 @@
 // src/lib/analyzers/index.ts
 
-import { DetectedStack } from '@/types';
-import { logger } from '@/lib/logger';
+import { DetectedStack } from '../../types';
+import { logger } from '../logger';
 
 interface FileContent {
   name: string;

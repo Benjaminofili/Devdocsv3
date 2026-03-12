@@ -1,7 +1,7 @@
 // src/lib/tiers/config.ts
 // Central tier configuration - single source of truth
 
-import type { UserTier, TierConfig } from '@/types'
+import type { UserTier, TierConfig } from '../../types'
 import { db } from '../firebase/config'
 import { doc, getDoc } from 'firebase/firestore'
 

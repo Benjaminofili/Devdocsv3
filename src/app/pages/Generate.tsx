@@ -349,6 +349,7 @@ function Step1({ onNext }: { onNext: (data: any) => void }) {
         setError(data.error || 'Failed to analyze repository');
       }
     } catch (err) {
+      console.error('Analysis failed:', err);
       setError('Connection error. Please try again.');
     } finally {
       setLoading(false);
@@ -356,7 +357,8 @@ function Step1({ onNext }: { onNext: (data: any) => void }) {
   };
 
   const pickRepo = (name: string) => {
-    setUrl(`https://github.com/alexchen/${name}`);
+    const username = user?.email?.split('@')[0] || 'username'; // Fallback to email prefix or 'username'
+    setUrl(`https://github.com/${username}/${name}`);
     setShowPicker(false);
   };
 

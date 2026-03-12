@@ -1,6 +1,6 @@
 // src/lib/bricks/index.ts
 
-import { SectionConfig,  DetectedStack } from '@/types';
+import { SectionConfig,  DetectedStack } from '../../types';
 
 export const SECTION_BRICKS: SectionConfig[] = [
   {

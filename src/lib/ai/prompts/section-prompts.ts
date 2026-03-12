@@ -1,6 +1,6 @@
 // src/lib/ai/prompts/section-prompts.ts
-
-import { DetectedStack, SectionConfig } from '@/types';
+import { DetectedStack, SectionConfig } from '../../../types';
+import { logger } from '../../logger';
 
 interface GitHubInfo {
   owner: string;
