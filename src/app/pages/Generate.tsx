@@ -8,8 +8,10 @@ import {
   Container, Package, TestTube, Settings, Star, GitFork, Clock,
   ChevronDown, Info, Zap, AlertCircle, Check, RefreshCw, FileText, Home
 } from 'lucide-react';
+import { SEOHead } from '../components/SEOHead';
 import { Link } from 'react-router';
 import { useApp } from '../context/AppContext';
+import { Confetti } from '../components/Confetti';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type WizardStep = 1 | 2 | 3 | 4 | 5;
@@ -637,6 +639,7 @@ function Step4({ selectedSections, onDone }: { selectedSections: string[]; onDon
   );
   const [currentIdx, setCurrentIdx] = useState(-1);
   const doneRef = useRef(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   const sectionLabel = (id: string) => ALL_SECTIONS.find(s => s.id === id)?.label ?? id;
 
@@ -652,9 +655,11 @@ function Step4({ selectedSections, onDone }: { selectedSections: string[]; onDon
         if (i < selectedSections.length - 1) await new Promise(r => setTimeout(r, 400));
       }
       doneRef.current = true;
+      setShowConfetti(true);
       window.dispatchEvent(new Event('usage_updated'));
+      // Collect final sections and call onDone after this render cycle
       setSections(prev => {
-        onDone(prev);
+        Promise.resolve(prev).then(finalSections => onDone(finalSections));
         return prev;
       });
     };
@@ -720,10 +725,13 @@ function Step4({ selectedSections, onDone }: { selectedSections: string[]; onDon
       </div>
 
       {done === total && total > 0 && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center">
-          <p className="text-emerald-400" style={{ fontWeight: 600 }}>🎉 All sections generated!</p>
-          <p className="text-zinc-400 text-sm mt-1">Opening preview...</p>
-        </div>
+        <>
+          {showConfetti && <Confetti />}
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center">
+            <p className="text-emerald-400" style={{ fontWeight: 600 }}>🎉 All sections generated!</p>
+            <p className="text-zinc-400 text-sm mt-1">Opening preview...</p>
+          </div>
+        </>
       )}
     </div>
   );
@@ -970,6 +978,11 @@ export function Generate() {
 
   return (
     <div className="min-h-screen bg-zinc-950">
+      <SEOHead
+        title="Generate README"
+        description="Generate a professional README for your GitHub repository. AI-powered stack detection and markdown generation in seconds."
+        path="/generate"
+      />
       {/* Top bar */}
       <div className="border-b border-zinc-800 bg-zinc-900/40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4">

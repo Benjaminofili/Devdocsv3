@@ -6,6 +6,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from 'recharts';
 import { useApp } from '../context/AppContext';
 import { Link } from 'react-router';
+import { SEOHead } from '../components/SEOHead';
 
 const STATS = {
   totalUsers: 1247,
@@ -103,6 +104,12 @@ export function Admin() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+      <SEOHead
+        title="Admin Panel"
+        description="DevDocs V2 admin panel — platform analytics, user metrics, and system overview."
+        path="/admin"
+        noIndex
+      />
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>

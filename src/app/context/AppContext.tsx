@@ -1,4 +1,16 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+/**
+ * Global application store powered by Zustand.
+ *
+ * Replaces the previous React Context + Provider pattern with a single
+ * `useApp` hook backed by a Zustand store.  Every consumer that was
+ * using `useApp()` continues to work without any import changes.
+ */
+import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export type UserTier = 'anonymous' | 'free' | 'premium';
 
@@ -18,20 +30,27 @@ export interface UsageInfo {
   resetAt: string;
 }
 
-interface AppContextType {
+interface AppState {
+  // State
   user: User | null;
   usage: UsageInfo;
   isLoggedIn: boolean;
   tier: UserTier;
+  waitlistOpen: boolean;
+  waitlistFeature: string;
+
+  // Actions
   login: (tier?: 'free' | 'premium') => void;
   logout: () => void;
   setDemoTier: (tier: UserTier) => void;
   refreshUsage: () => void;
-  waitlistOpen: boolean;
-  waitlistFeature: string;
   openWaitlist: (feature: string) => void;
   closeWaitlist: () => void;
 }
+
+// ---------------------------------------------------------------------------
+// Mock data
+// ---------------------------------------------------------------------------
 
 const MOCK_USERS: Record<string, User> = {
   free: {
@@ -57,64 +76,61 @@ const getMockUsage = (tier: UserTier): UsageInfo => {
   return { used: 147, limit: Infinity, remaining: Infinity, tier, resetAt };
 };
 
-const AppContext = createContext<AppContextType | null>(null);
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 
-export function AppProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [tier, setTier] = useState<UserTier>('anonymous');
-  const [usage, setUsage] = useState<UsageInfo>(getMockUsage('anonymous'));
-  const [waitlistOpen, setWaitlistOpen] = useState(false);
-  const [waitlistFeature, setWaitlistFeature] = useState('');
+export const useApp = create<AppState>()(
+  subscribeWithSelector((set, get) => ({
+    // Initial state
+    user: null,
+    usage: getMockUsage('anonymous'),
+    isLoggedIn: false,
+    tier: 'anonymous',
+    waitlistOpen: false,
+    waitlistFeature: '',
 
-  const login = (t: 'free' | 'premium' = 'free') => {
-    const u = { ...MOCK_USERS[t], tier: t };
-    setUser(u);
-    setTier(t);
-    setUsage(getMockUsage(t));
-  };
+    // Actions
+    login: (t: 'free' | 'premium' = 'free') => {
+      const u: User = { ...MOCK_USERS[t], tier: t };
+      set({ user: u, tier: t, isLoggedIn: true, usage: getMockUsage(t) });
+    },
 
-  const logout = () => {
-    setUser(null);
-    setTier('anonymous');
-    setUsage(getMockUsage('anonymous'));
-  };
+    logout: () => {
+      set({
+        user: null,
+        tier: 'anonymous',
+        isLoggedIn: false,
+        usage: getMockUsage('anonymous'),
+      });
+    },
 
-  const setDemoTier = (t: UserTier) => {
-    if (t === 'anonymous') { logout(); return; }
-    const u = { ...MOCK_USERS[t === 'premium' ? 'premium' : 'free'], tier: t };
-    setUser(u);
-    setTier(t);
-    setUsage(getMockUsage(t));
-  };
+    setDemoTier: (t: UserTier) => {
+      if (t === 'anonymous') {
+        get().logout();
+        return;
+      }
+      const u: User = { ...MOCK_USERS[t === 'premium' ? 'premium' : 'free'], tier: t };
+      set({ user: u, tier: t, isLoggedIn: true, usage: getMockUsage(t) });
+    },
 
-  const refreshUsage = () => setUsage(getMockUsage(tier));
+    refreshUsage: () => {
+      set({ usage: getMockUsage(get().tier) });
+    },
 
-  const openWaitlist = (feature: string) => {
-    setWaitlistFeature(feature);
-    setWaitlistOpen(true);
-  };
+    openWaitlist: (feature: string) => {
+      set({ waitlistFeature: feature, waitlistOpen: true });
+    },
 
-  const closeWaitlist = () => setWaitlistOpen(false);
+    closeWaitlist: () => {
+      set({ waitlistOpen: false });
+    },
+  }))
+);
 
-  useEffect(() => {
-    const handler = () => refreshUsage();
-    window.addEventListener('usage_updated', handler);
-    return () => window.removeEventListener('usage_updated', handler);
-  }, [tier]);
-
-  return (
-    <AppContext.Provider value={{
-      user, usage, isLoggedIn: !!user, tier,
-      login, logout, setDemoTier, refreshUsage,
-      waitlistOpen, waitlistFeature, openWaitlist, closeWaitlist,
-    }}>
-      {children}
-    </AppContext.Provider>
-  );
-}
-
-export function useApp() {
-  const ctx = useContext(AppContext);
-  if (!ctx) throw new Error('useApp must be inside AppProvider');
-  return ctx;
+// Listen for custom "usage_updated" events (same behaviour as before)
+if (typeof window !== 'undefined') {
+  window.addEventListener('usage_updated', () => {
+    useApp.getState().refreshUsage();
+  });
 }

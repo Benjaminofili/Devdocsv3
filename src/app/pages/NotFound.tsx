@@ -1,9 +1,11 @@
 import { Link } from 'react-router';
 import { FileQuestion, Home, Zap } from 'lucide-react';
+import { SEOHead } from '../components/SEOHead';
 
 export function NotFound() {
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 text-center">
+      <SEOHead title="Page Not Found" description="The page you're looking for doesn't exist." noIndex />
       <div className="relative mb-6">
         <div className="w-20 h-20 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
           <FileQuestion className="w-10 h-10 text-zinc-600" />

@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import {
   BookOpen, Github, LayoutDashboard, LogOut, ChevronDown, Zap, Shield, User,
-  Menu, X, Home, FileText, Settings
+  Menu, X, Home, FileText, Settings, Search
 } from 'lucide-react';
 import { useApp, UserTier } from '../context/AppContext';
 import { UsageMeter } from './UsageMeter';
+import { DevDocsIcon } from './DevDocsIcon';
 
 export function Header() {
   const { isLoggedIn, user, tier, login, logout, setDemoTier } = useApp();
@@ -36,9 +37,7 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2.5 flex-shrink-0" onClick={closeMobile}>
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <BookOpen className="w-4 h-4 text-white" />
-          </div>
+          <DevDocsIcon size={28} />
           <span className="text-zinc-100 text-sm hidden sm:block" style={{ fontWeight: 700, letterSpacing: '-0.02em' }}>
             DevDocs<span className="text-indigo-400">.</span>
           </span>
@@ -63,6 +62,18 @@ export function Header() {
 
         {/* Right side */}
         <div className="flex items-center gap-3">
+          {/* ⌘K search hint — desktop only */}
+          <button
+            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+            className="hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors text-xs"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>Search...</span>
+            <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-zinc-700/60 border border-zinc-600/50 text-zinc-400 text-[10px] font-mono">
+              ⌘K
+            </kbd>
+          </button>
+
           {/* Usage meter – desktop only */}
           <div className="hidden sm:flex">
             <UsageMeter />

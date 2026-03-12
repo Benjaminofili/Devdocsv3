@@ -1,0 +1,10 @@
+# DevDocs V2 — robots.txt
+# https://devdocs.dev
+
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+
+# Sitemap
+Sitemap: https://devdocs.dev/sitemap.xml

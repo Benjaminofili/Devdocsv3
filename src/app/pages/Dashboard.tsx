@@ -6,6 +6,7 @@ import {
   Download, Copy, Check, History
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { SEOHead } from '../components/SEOHead';
 
 interface SavedReadme {
   id: string;
@@ -117,6 +118,12 @@ export function Dashboard() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+      <SEOHead
+        title="Dashboard"
+        description="Manage your saved READMEs, view generation history, and track usage on DevDocs V2."
+        path="/dashboard"
+        noIndex
+      />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">

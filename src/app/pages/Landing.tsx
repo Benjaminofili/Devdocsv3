@@ -7,6 +7,9 @@ import {
   Package, Shield, Globe
 } from 'lucide-react';
 
+import { DevDocsIcon } from '../components/DevDocsIcon';
+import { SEOHead } from '../components/SEOHead';
+
 const MOCK_TERMINAL_LINES = [
   { type: 'cmd',     text: '$ devdocs generate github.com/user/my-api' },
   { type: 'info',    text: '→ Analyzing repository...' },
@@ -212,6 +215,11 @@ const stagger = {
 export function Landing() {
   return (
     <div className="text-zinc-100">
+      <SEOHead
+        title="AI-Powered README Generator"
+        description="Generate professional README files for your GitHub repositories in seconds. AI-powered stack detection, best-practice templates, and instant markdown output."
+        path="/"
+      />
       {/* Hero */}
       <section className="relative overflow-hidden">
         {/* Background */}
@@ -480,7 +488,7 @@ export function Landing() {
       <footer className="border-t border-zinc-800 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-zinc-600 text-sm">
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-indigo-500" />
+            <DevDocsIcon size={18} />
             <span>DevDocs V2</span>
             <span className="px-2 py-0.5 bg-zinc-800 rounded text-xs font-mono">v2.0.0</span>
           </div>
