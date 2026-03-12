@@ -1,23 +1,15 @@
-/**
- * Global application store powered by Zustand.
- *
- * Replaces the previous React Context + Provider pattern with a single
- * `useApp` hook backed by a Zustand store.  Every consumer that was
- * using `useApp()` continues to work without any import changes.
- */
+// src/app/context/AppContext.tsx
 import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { auth, loginWithGitHub, logout as firebaseLogout, mapFirebaseUser } from '@/lib/firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
+import { getCurrentUsage } from '@/lib/tiers/usage';
 
 export type UserTier = 'anonymous' | 'free' | 'premium';
 
 export interface User {
   id: string;
   name: string;
-  username: string;
+  email: string | null;
   avatar: string;
   tier: UserTier;
 }
@@ -31,106 +23,87 @@ export interface UsageInfo {
 }
 
 interface AppState {
-  // State
   user: User | null;
   usage: UsageInfo;
   isLoggedIn: boolean;
   tier: UserTier;
+  sessionId: string;
   waitlistOpen: boolean;
   waitlistFeature: string;
 
-  // Actions
-  login: (tier?: 'free' | 'premium') => void;
-  logout: () => void;
-  setDemoTier: (tier: UserTier) => void;
-  refreshUsage: () => void;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  refreshUsage: () => Promise<void>;
   openWaitlist: (feature: string) => void;
   closeWaitlist: () => void;
+  setSessionId: (id: string) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
+const DEFAULT_USAGE = (tier: UserTier = 'anonymous'): UsageInfo => ({
+  used: 0,
+  limit: tier === 'anonymous' ? 5 : tier === 'free' ? 50 : Infinity,
+  remaining: tier === 'anonymous' ? 5 : tier === 'free' ? 50 : Infinity,
+  tier,
+  resetAt: new Date().toISOString(),
+});
 
-const MOCK_USERS: Record<string, User> = {
-  free: {
-    id: '1',
-    name: 'Alex Chen',
-    username: 'alexchen',
-    avatar: 'AC',
-    tier: 'free',
+export const useApp = create<AppState>((set, get) => ({
+  user: null,
+  usage: DEFAULT_USAGE('anonymous'),
+  isLoggedIn: false,
+  tier: 'anonymous',
+  sessionId: localStorage.getItem('devdocs_session_id') || (() => {
+    const id = crypto.randomUUID();
+    localStorage.setItem('devdocs_session_id', id);
+    return id;
+  })(),
+  waitlistOpen: false,
+  waitlistFeature: '',
+
+  login: async () => {
+    await loginWithGitHub();
   },
-  premium: {
-    id: '2',
-    name: 'Sarah Dev',
-    username: 'sarahdev',
-    avatar: 'SD',
-    tier: 'premium',
+
+  logout: async () => {
+    await firebaseLogout();
   },
-};
 
-const getMockUsage = (tier: UserTier): UsageInfo => {
-  const resetAt = new Date(Date.now() + 6 * 3600000).toISOString();
-  if (tier === 'anonymous') return { used: 3, limit: 5, remaining: 2, tier, resetAt };
-  if (tier === 'free') return { used: 12, limit: 50, remaining: 38, tier, resetAt };
-  return { used: 147, limit: Infinity, remaining: Infinity, tier, resetAt };
-};
+  refreshUsage: async () => {
+    const { user, sessionId, tier } = get();
+    try {
+      const usage = await getCurrentUsage(user?.id || null, sessionId, tier);
+      set({ usage });
+    } catch (error) {
+      console.warn('Failed to refresh usage:', error);
+    }
+  },
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
+  openWaitlist: (feature: string) => set({ waitlistFeature: feature, waitlistOpen: true }),
+  closeWaitlist: () => set({ waitlistOpen: false }),
+  setSessionId: (id: string) => {
+    localStorage.setItem('devdocs_session_id', id);
+    set({ sessionId: id });
+  },
+}));
 
-export const useApp = create<AppState>()(
-  subscribeWithSelector((set, get) => ({
-    // Initial state
-    user: null,
-    usage: getMockUsage('anonymous'),
-    isLoggedIn: false,
-    tier: 'anonymous',
-    waitlistOpen: false,
-    waitlistFeature: '',
-
-    // Actions
-    login: (t: 'free' | 'premium' = 'free') => {
-      const u: User = { ...MOCK_USERS[t], tier: t };
-      set({ user: u, tier: t, isLoggedIn: true, usage: getMockUsage(t) });
-    },
-
-    logout: () => {
-      set({
-        user: null,
-        tier: 'anonymous',
-        isLoggedIn: false,
-        usage: getMockUsage('anonymous'),
-      });
-    },
-
-    setDemoTier: (t: UserTier) => {
-      if (t === 'anonymous') {
-        get().logout();
-        return;
-      }
-      const u: User = { ...MOCK_USERS[t === 'premium' ? 'premium' : 'free'], tier: t };
-      set({ user: u, tier: t, isLoggedIn: true, usage: getMockUsage(t) });
-    },
-
-    refreshUsage: () => {
-      set({ usage: getMockUsage(get().tier) });
-    },
-
-    openWaitlist: (feature: string) => {
-      set({ waitlistFeature: feature, waitlistOpen: true });
-    },
-
-    closeWaitlist: () => {
-      set({ waitlistOpen: false });
-    },
-  }))
-);
-
-// Listen for custom "usage_updated" events (same behaviour as before)
-if (typeof window !== 'undefined') {
-  window.addEventListener('usage_updated', () => {
+// Initialize Auth Listener
+onAuthStateChanged(auth, async (firebaseUser) => {
+  if (firebaseUser) {
+    const mappedUser = await mapFirebaseUser(firebaseUser);
+    useApp.setState({ 
+      user: mappedUser, 
+      isLoggedIn: true, 
+      tier: mappedUser.tier 
+    });
+    // Trigger usage fetch
     useApp.getState().refreshUsage();
-  });
-}
+  } else {
+    useApp.setState({ 
+      user: null, 
+      isLoggedIn: false, 
+      tier: 'anonymous',
+      usage: DEFAULT_USAGE('anonymous')
+    });
+    useApp.getState().refreshUsage();
+  }
+});

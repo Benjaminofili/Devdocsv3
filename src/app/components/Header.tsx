@@ -9,19 +9,13 @@ import { UsageMeter } from './UsageMeter';
 import { DevDocsIcon } from './DevDocsIcon';
 
 export function Header() {
-  const { isLoggedIn, user, tier, login, logout, setDemoTier } = useApp();
+  const { isLoggedIn, user, tier, login, logout } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [demoOpen, setDemoOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
 
   const isActive = (path: string) => location.pathname === path;
 
-  const TIER_OPTIONS: { tier: UserTier; label: string; icon: React.ReactNode; color: string }[] = [
-    { tier: 'anonymous', label: 'Anonymous', icon: <User className="w-3.5 h-3.5" />, color: 'text-zinc-400' },
-    { tier: 'free', label: 'Free User', icon: <Github className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
-    { tier: 'premium', label: 'Premium', icon: <Zap className="w-3.5 h-3.5" />, color: 'text-violet-400' },
-  ];
 
   const NAV_LINKS = [
     { path: '/', label: 'Home', icon: Home },
@@ -79,42 +73,6 @@ export function Header() {
             <UsageMeter />
           </div>
 
-          {/* Demo tier switcher */}
-          <div className="relative">
-            <button
-              onClick={() => setDemoOpen(o => !o)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors text-xs"
-            >
-              <Shield className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:block">Demo Tier</span>
-              <ChevronDown className="w-3 h-3" />
-            </button>
-            {demoOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setDemoOpen(false)} />
-                <div className="absolute right-0 top-full mt-2 w-44 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl shadow-black/50 z-20 overflow-hidden">
-                  <div className="p-2 border-b border-zinc-800">
-                    <p className="text-zinc-500 text-xs px-2 py-1">Switch demo tier</p>
-                  </div>
-                  <div className="p-1">
-                    {TIER_OPTIONS.map(({ tier: t, label, icon, color }) => (
-                      <button
-                        key={t}
-                        onClick={() => { setDemoTier(t); setDemoOpen(false); }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-zinc-800 ${
-                          tier === t ? 'bg-zinc-800' : ''
-                        }`}
-                      >
-                        <span className={color}>{icon}</span>
-                        <span className={tier === t ? 'text-zinc-100' : 'text-zinc-400'}>{label}</span>
-                        {tier === t && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500" />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
 
           {/* Auth – desktop */}
           <div className="hidden sm:block">
@@ -124,8 +82,12 @@ export function Header() {
                   onClick={() => setMenuOpen(o => !o)}
                   className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-lg hover:bg-zinc-800 transition-colors"
                 >
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs" style={{ fontWeight: 700 }}>
-                    {user?.avatar}
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs overflow-hidden" style={{ fontWeight: 700 }}>
+                    {user?.avatar?.startsWith('http') ? (
+                      <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                    ) : (
+                      user?.avatar || user?.name?.charAt(0) || 'U'
+                    )}
                   </div>
                   <span className="text-zinc-300 text-sm hidden sm:block">{user?.name}</span>
                   <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
@@ -136,7 +98,7 @@ export function Header() {
                     <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl shadow-black/50 z-20 overflow-hidden">
                       <div className="p-3 border-b border-zinc-800">
                         <p className="text-zinc-200 text-sm" style={{ fontWeight: 500 }}>{user?.name}</p>
-                        <p className="text-zinc-500 text-xs">@{user?.username}</p>
+                        <p className="text-zinc-500 text-xs">{user?.email}</p>
                       </div>
                       <div className="p-1">
                         <Link to="/dashboard" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
@@ -152,7 +114,7 @@ export function Header() {
               </div>
             ) : (
               <button
-                onClick={() => login('free')}
+                onClick={() => login()}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 text-sm transition-colors"
                 style={{ fontWeight: 500 }}
               >
@@ -206,12 +168,16 @@ export function Header() {
               {isLoggedIn ? (
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-3 px-3 py-2">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs" style={{ fontWeight: 700 }}>
-                      {user?.avatar}
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs overflow-hidden" style={{ fontWeight: 700 }}>
+                      {user?.avatar?.startsWith('http') ? (
+                        <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                      ) : (
+                        user?.avatar || user?.name?.charAt(0) || 'U'
+                      )}
                     </div>
                     <div>
                       <p className="text-zinc-200 text-sm" style={{ fontWeight: 500 }}>{user?.name}</p>
-                      <p className="text-zinc-500 text-xs">@{user?.username}</p>
+                      <p className="text-zinc-500 text-xs">{user?.email}</p>
                     </div>
                   </div>
                   <button
@@ -223,7 +189,7 @@ export function Header() {
                 </div>
               ) : (
                 <button
-                  onClick={() => { login('free'); closeMobile(); }}
+                  onClick={() => { login(); closeMobile(); }}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-900 text-sm transition-colors"
                   style={{ fontWeight: 500 }}
                 >

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Link } from 'react-router';
 import {
   FileText, Trash2, Eye, Plus, Github, Clock, Star, Layers,
@@ -73,12 +74,40 @@ function timeAgo(iso: string) {
 
 export function Dashboard() {
   const { isLoggedIn, user, tier, usage } = useApp();
-  const [readmes, setReadmes] = useState<SavedReadme[]>(MOCK_READMES);
+  const [readmes, setReadmes] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'grid' | 'list'>('list');
   const [tab, setTab] = useState<'readmes' | 'history'>('readmes');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoggedIn || !user) return;
+
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const { getSavedReadmes } = await import('@/lib/firebase/saved-readmes');
+        const { getGenerationHistory } = await import('@/lib/firebase/usage-history');
+        
+        const [savedData, historyData] = await Promise.all([
+          getSavedReadmes(user.id),
+          getGenerationHistory(user.id)
+        ]);
+        
+        setReadmes(savedData);
+        setHistory(historyData);
+      } catch (err) {
+        console.error('Dashboard fetch error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [isLoggedIn, user]);
 
   if (!isLoggedIn) {
     return (
@@ -102,9 +131,16 @@ export function Dashboard() {
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
-    await new Promise(r => setTimeout(r, 600));
-    setReadmes(prev => prev.filter(r => r.id !== id));
-    setDeletingId(null);
+    try {
+      const { deleteSavedReadme } = await import('@/lib/firebase/saved-readmes');
+      await deleteSavedReadme(id);
+      setReadmes(prev => prev.filter(r => r.id !== id));
+      toast.success('README deleted');
+    } catch (err) {
+      toast.error('Failed to delete README');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleCopy = async (id: string, content: string) => {
@@ -127,13 +163,17 @@ export function Dashboard() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white" style={{ fontWeight: 700, fontSize: 18 }}>
-            {user?.avatar}
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white overflow-hidden" style={{ fontWeight: 700, fontSize: 18 }}>
+            {user?.avatar?.startsWith('http') ? (
+              <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+            ) : (
+              user?.avatar || user?.name?.charAt(0) || 'U'
+            )}
           </div>
           <div>
             <h1 className="text-zinc-100 text-xl" style={{ fontWeight: 700 }}>{user?.name}</h1>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-zinc-500 text-sm">@{user?.username}</span>
+              <span className="text-zinc-500 text-sm">{user?.email}</span>
               <span className={`px-2 py-0.5 rounded-full text-xs ${
                 tier === 'premium' ? 'bg-violet-500/20 text-violet-400' :
                 'bg-indigo-500/20 text-indigo-400'
@@ -157,8 +197,8 @@ export function Dashboard() {
         {[
           { label: 'Saved READMEs', value: `${savedCount}/${savedLimit === Infinity ? '∞' : savedLimit}`, icon: FileText, color: 'text-indigo-400' },
           { label: 'Today\'s Usage', value: `${usage.used}/${usage.limit === Infinity ? '∞' : usage.limit}`, icon: Zap, color: 'text-emerald-400' },
-          { label: 'Total Generated', value: MOCK_HISTORY.length.toString(), icon: History, color: 'text-violet-400' },
-          { label: 'Stacks Used', value: '4', icon: Layers, color: 'text-amber-400' },
+          { label: 'Total Generated', value: history.length.toString(), icon: History, color: 'text-violet-400' },
+          { label: 'Stacks Used', value: new Set(readmes.map(r => r.stack).filter(Boolean)).size.toString(), icon: Layers, color: 'text-amber-400' },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
             <div className="flex items-center gap-2 mb-2">
@@ -301,22 +341,27 @@ export function Dashboard() {
       {/* History Tab */}
       {tab === 'history' && (
         <div className="space-y-3">
-          {MOCK_HISTORY.map(item => (
-            <div key={item.id} className="flex items-center gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors">
-              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.status === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <Github className="w-3.5 h-3.5 text-zinc-500" />
-                  <span className="text-zinc-200 text-sm font-mono">{item.repo}</span>
-                  <span className={`px-1.5 py-0.5 rounded text-xs ${
-                    item.status === 'success' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
-                  }`}>{item.status}</span>
+          {history.length === 0 ? (
+             <div className="text-center py-16 border border-zinc-800 rounded-2xl bg-zinc-900/30">
+               <History className="w-10 h-10 text-zinc-700 mx-auto mb-3" />
+               <p className="text-zinc-400">No generation history yet</p>
+             </div>
+          ) : (
+            history.map(item => (
+              <div key={item.id} className="flex items-center gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 bg-emerald-500`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Github className="w-3.5 h-3.5 text-zinc-500" />
+                    <span className="text-zinc-200 text-sm font-mono">{item.project_name || item.repo_url || 'Unknown Project'}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-400`}>success</span>
+                  </div>
+                  <p className="text-zinc-600 text-xs mt-0.5">{item.stack} · {item.section_id} · {formatDate(item.created_at?.toDate?.()?.toISOString() || new Date().toISOString())}</p>
                 </div>
-                <p className="text-zinc-600 text-xs mt-0.5">{item.sections} sections · {formatDate(item.date)}</p>
+                <span className="text-zinc-600 text-xs flex-shrink-0">{timeAgo(item.created_at?.toDate?.()?.toISOString() || new Date().toISOString())}</span>
               </div>
-              <span className="text-zinc-600 text-xs flex-shrink-0">{timeAgo(item.date)}</span>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
     </div>

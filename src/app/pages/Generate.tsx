@@ -316,8 +316,8 @@ function StepIndicator({ step }: { step: WizardStep }) {
 }
 
 // ─── Step 1: Repo Input ─────────────────────────────────────────────────────
-function Step1({ onNext }: { onNext: (url: string) => void }) {
-  const { isLoggedIn } = useApp();
+function Step1({ onNext }: { onNext: (data: any) => void }) {
+  const { isLoggedIn, sessionId, user } = useApp();
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -330,9 +330,29 @@ function Step1({ onNext }: { onNext: (url: string) => void }) {
     if (!validate(url)) { setError('Please enter a valid GitHub repository URL'); return; }
     setError('');
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1400));
-    setLoading(false);
-    onNext(url);
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-session-id': sessionId,
+          ...(user?.id ? { 'x-user-id': user.id } : {}),
+        },
+        body: JSON.stringify({ repoUrl: url }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        onNext(data.data);
+      } else {
+        setError(data.error || 'Failed to analyze repository');
+      }
+    } catch (err) {
+      setError('Connection error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const pickRepo = (name: string) => {
@@ -425,8 +445,7 @@ function Step1({ onNext }: { onNext: (url: string) => void }) {
 }
 
 // ─── Step 2: Stack Detection ─────────────────────────────────────────────────
-function Step2({ repoUrl, onNext, onBack }: { repoUrl: string; onNext: () => void; onBack: () => void }) {
-  const stack = MOCK_STACK;
+function Step2({ repoUrl, stack, onNext, onBack }: { repoUrl: string; stack: any; onNext: () => void; onBack: () => void }) {
   const flags = [
     { key: 'hasDocker', label: 'Docker', icon: '🐳', value: stack.hasDocker },
     { key: 'hasCI', label: 'CI/CD', icon: '⚙️', value: stack.hasCI },
@@ -633,7 +652,22 @@ function Step3({ selectedSections, onToggle, onNext, onBack }: {
 }
 
 // ─── Step 4: Generation ──────────────────────────────────────────────────────
-function Step4({ selectedSections, onDone }: { selectedSections: string[]; onDone: (sections: GeneratedSection[]) => void }) {
+function Step4({ 
+  selectedSections, 
+  projectName, 
+  repoUrl, 
+  stack, 
+  repoData, 
+  onDone 
+}: { 
+  selectedSections: string[]; 
+  projectName: string;
+  repoUrl: string;
+  stack: any;
+  repoData: any;
+  onDone: (sections: GeneratedSection[]) => void 
+}) {
+  const { sessionId, user, refreshUsage } = useApp();
   const [sections, setSections] = useState<GeneratedSection[]>(
     selectedSections.map(id => ({ id, content: '', status: 'pending' }))
   );
@@ -645,23 +679,53 @@ function Step4({ selectedSections, onDone }: { selectedSections: string[]; onDon
 
   useEffect(() => {
     const run = async () => {
+      const generatedResults: GeneratedSection[] = [];
+
       for (let i = 0; i < selectedSections.length; i++) {
+        const id = selectedSections[i];
         setCurrentIdx(i);
         setSections(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'generating' } : s));
-        await new Promise(r => setTimeout(r, 2000 + Math.random() * 1500));
-        setSections(prev => prev.map((s, idx) =>
-          idx === i ? { ...s, status: 'done', content: README_CONTENT[s.id] || `## ${sectionLabel(s.id)}\n\nContent generated successfully.` } : s
-        ));
-        if (i < selectedSections.length - 1) await new Promise(r => setTimeout(r, 400));
+
+        try {
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-session-id': sessionId,
+              ...(user?.id ? { 'x-user-id': user.id } : {}),
+            },
+            body: JSON.stringify({
+              sectionId: id,
+              projectName,
+              repoUrl,
+              stack,
+              repoData,
+              isFirstSection: i === 0,
+            }),
+          });
+
+          const data = await res.json();
+          if (data.success) {
+            const result: GeneratedSection = { 
+              id, 
+              content: data.data.content, 
+              status: 'done' 
+            };
+            generatedResults.push(result);
+            setSections(prev => prev.map((s, idx) => idx === i ? result : s));
+          } else {
+            throw new Error(data.error || 'Generation failed');
+          }
+        } catch (err) {
+          setSections(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'error' } : s));
+          toast.error(`Failed to generate ${sectionLabel(id)}`);
+        }
       }
+      
       doneRef.current = true;
       setShowConfetti(true);
-      window.dispatchEvent(new Event('usage_updated'));
-      // Collect final sections and call onDone after this render cycle
-      setSections(prev => {
-        Promise.resolve(prev).then(finalSections => onDone(finalSections));
-        return prev;
-      });
+      refreshUsage();
+      onDone(generatedResults);
     };
     run();
   }, []);
@@ -771,12 +835,22 @@ function Step5({ sections, onBack, onRestart }: {
   };
 
   const handleSave = async () => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || !user) return;
     setSaving(true);
-    await new Promise(r => setTimeout(r, 1000));
-    setSaving(false);
-    setSaved(true);
-    toast.success('README saved to dashboard!');
+    try {
+      const { saveReadme } = await import('@/lib/firebase/saved-readmes');
+      await saveReadme(user.id, {
+        projectName: sections[0]?.id || 'README',
+        content: fullContent,
+        repoUrl: '', // Could be passed down
+      });
+      setSaved(true);
+      toast.success('README saved to dashboard!');
+    } catch (err) {
+      toast.error('Failed to save README');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const TABS = [
@@ -944,18 +1018,17 @@ function Step5({ sections, onBack, onRestart }: {
 
 // ─── Main Generate Page ──────────────────────────────────────────────────────
 export function Generate() {
-  const { tier } = useApp();
   const [step, setStep] = useState<WizardStep>(1);
   const [repoUrl, setRepoUrl] = useState('');
-  const [selectedSections, setSelectedSections] = useState<string[]>(() => {
-    return ALL_SECTIONS
-      .filter(s => {
-        const accessible = s.tier === 'anonymous' || (tier !== 'anonymous' && s.tier === 'free') || tier === 'premium';
-        return accessible && (s.required || s.recommended);
-      })
-      .map(s => s.id);
-  });
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [generatedSections, setGeneratedSections] = useState<GeneratedSection[]>([]);
+
+  useEffect(() => {
+     if (analysisResult?.suggestedSections) {
+        setSelectedSections(analysisResult.suggestedSections);
+     }
+  }, [analysisResult]);
 
   const toggleSection = (id: string) => {
     const section = ALL_SECTIONS.find(s => s.id === id);
@@ -1000,13 +1073,13 @@ export function Generate() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
         <AnimatePresence mode="wait">
           {step === 1 && (
-            <motion.div key="step1" variants={stepVariants} initial="initial" animate="animate" exit="exit">
-              <Step1 onNext={url => { setRepoUrl(url); setStep(2); }} />
+            <motion.div key="step1" variants={stepVariants as any} initial="initial" animate="animate" exit="exit">
+              <Step1 onNext={data => { setRepoUrl(data.repoData.repoUrl || repoUrl); setAnalysisResult(data); setStep(2); }} />
             </motion.div>
           )}
           {step === 2 && (
-            <motion.div key="step2" variants={stepVariants} initial="initial" animate="animate" exit="exit">
-              <Step2 repoUrl={repoUrl} onNext={() => setStep(3)} onBack={() => setStep(1)} />
+            <motion.div key="step2" variants={stepVariants as any} initial="initial" animate="animate" exit="exit">
+              <Step2 repoUrl={repoUrl} stack={analysisResult?.stack} onNext={() => setStep(3)} onBack={() => setStep(1)} />
             </motion.div>
           )}
           {step === 3 && (
@@ -1020,9 +1093,13 @@ export function Generate() {
             </motion.div>
           )}
           {step === 4 && (
-            <motion.div key="step4" variants={stepVariants} initial="initial" animate="animate" exit="exit">
+            <motion.div key="step4" variants={stepVariants as any} initial="initial" animate="animate" exit="exit">
               <Step4
                 selectedSections={selectedSections}
+                projectName={analysisResult?.stack?.repoName || 'Project'}
+                repoUrl={repoUrl}
+                stack={analysisResult?.stack}
+                repoData={analysisResult?.repoData}
                 onDone={handleGenerationDone}
               />
             </motion.div>
