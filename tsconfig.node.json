@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "outDir": ".vercel/output/functions",
+    "baseUrl": "."
+  },
+  "include": ["api/**/*", "src/lib/**/*", "src/config/**/*", "src/types/**/*"],
+  "exclude": ["node_modules"]
+}
