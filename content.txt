@@ -1,0 +1,928 @@
+Based on my thorough analysis of the DevDocs codebase, here's a comprehensive overview:
+
+---
+
+# **DevDocs — Complete Project Analysis**
+
+## **1. CORE FEATURES**
+
+**DevDocs** is an AI-powered README/documentation generator for GitHub repositories. It provides:
+
+- **🔍 Stack Detection** — Automatically analyzes repo tech stack (Next.js, Django, Go, Rust, etc.)
+- **📝 Intelligent Section Generation** — Creates professional README sections using AI
+- **🎯 Tier-Based Access** — Anonymous (5 gen/day), Free (50 gen/day), Premium (unlimited)
+- **💾 Save & History** — Users can save generated READMEs and view generation history
+- **🤖 Multi-AI Provider Support** — Falls back through Groq → Gemini → OpenAI → Anthropic → Ollama
+- **⚡ Rate Limiting** — DDoS protection using Upstash Redis with sliding window
+- **🔐 GitHub OAuth** — Users authenticate via GitHub through Supabase
+- **📊 Usage Tracking** — Per-user/session daily limits with Redis + Supabase persistence
+
+**Use Cases:**
+- Developers quickly generating professional READMEs for new projects
+- Job seekers showcasing well-documented projects to employers
+- Open-source maintainers creating comprehensive docs at scale
+
+---
+
+## **2. ARCHITECTURE OVERVIEW**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        FRONTEND (Next.js 16)                     │
+├──────────────────────┬──────────────────────┬──────────────────┤
+│  Pages               │  Components          │  State Management │
+│  ├─ / (landing)     │  ├─ ReadmeWizard     │  ├─ Zustand store │
+│  ├─ /generate       │  ├─ RepoInput        │  ├─ Auth context  │
+│  ├─ /dashboard      │  ├─ StackDetection   │                   │
+│  └─ /admin          │  ├─ SectionSelector  │                   │
+│                      │  ├─ PreviewEditor    │                   │
+│                      │  └─ Header (Auth)    │                   │
+└─────────────────────┴──────────────────────┴──────────────────┘
+         ↕                           ↕
+┌─────────────────────────────────────────────────────────────────┐
+│                    BACKEND API (Next.js Routes)                  │
+├──────────────────────┬──────────────────────┬──────────────────┤
+│  Core Endpoints      │  User/Auth           │  Admin            │
+│  ├─ POST /analyze    │  ├─ GET /user/usage  │  ├─ GET /stats    │
+│  ├─ POST /generate   │  ├─ GET /readmes     │  └─ Webhooks      │
+│  ├─ POST /feedback   │  ├─ POST /readmes    │                   │
+│  ├─ POST /waitlist   │  ├─ GET /history     │                   │
+│  └─ Cache ops        │  └─ DELETE /history  │                   │
+└──────────────────────┴──────────────────────┴──────────────────┘
+         ↕
+┌─────────────────────────────────────────────────────────────────┐
+│                   EXTERNAL INTEGRATIONS                          │
+├──────────────────────┬──────────────────────┬──────────────────┤
+│  AI Providers        │  Data Services       │  GitHub           │
+│  ├─ Groq (1st)      │  ├─ Supabase Auth    │  ├─ Repo fetch    │
+│  ├─ Gemini (2nd)    │  ├─ Supabase DB      │  ├─ User repos    │
+│  ├─ OpenAI (3rd)    │  └─ Upstash Redis    │  └─ OAuth         │
+│  ├─ Anthropic (4th) │                      │                    │
+│  └─ Ollama (5th)    │                      │                    │
+└──────────────────────┴──────────────────────┴──────────────────┘
+```
+
+**Key Architectural Patterns:**
+- **5-Step Wizard Flow** — State managed by Zustand, persisted across page navigation
+- **Provider Fallback Chain** — AI orchestrator tries providers by priority
+- **Dual Tracking** — Redis (fast, real-time usage) + Supabase (persistent logs)
+- **Optional Auth** — Generation works for logged-out users; upgrades with login
+- **Session-Based Anon** — Anonymous users tracked via `readme_session` cookie
+
+---
+
+## **3. BACKEND/API STRUCTURE**
+
+### **A. Core Endpoints**
+
+#### **POST /api/analyze** — Analyze a GitHub Repository
+```typescript
+// INPUT: { repoUrl: "https://github.com/user/repo" OR files: [...] }
+// OUTPUT: { stack, suggestedSections, files, repoData }
+
+// FLOW:
+// 1. Parse GitHub URL → extract owner/repo
+// 2. Fetch important files (package.json, requirements.txt, Dockerfile)
+// 3. StackAnalyzer detects tech stack
+// 4. getSectionsForStack() maps available sections
+// 5. Cache result for 15 minutes
+// 6. Return comprehensive repo data
+
+// Cache Key: "analyze:{repoUrl}"
+// Cache TTL: 900 seconds (15 min)
+```
+
+#### **POST /api/generate** — Generate README Sections
+```typescript
+// INPUT: { 
+//   projectName, stack, selectedSectionIds, repoUrl, repoData 
+// }
+// OUTPUT: { sections: [{ id, content, provider, explanation }], usage }
+
+// FLOW (per section):
+// 1. Check auth (optional, non-blocking)
+// 2. Enforce rate limiting (IP-based)
+// 3. Check user tier usage limits
+// 4. Validate section is available for tier
+// 5. Check cache for existing generation
+// 6. Call AIOrchestrator with section prompt
+// 7. Validate response isn't invalid placeholder
+// 8. Increment usage counter (Redis + Supabase)
+// 9. Log to generation_history table
+// 10. Return generated section
+
+// Rate Limit: 50 requests/10 min per IP
+// Usage Limits: 5 (anon), 50 (free), ∞ (premium) per day
+// Cache TTL: 86400 seconds (24 hours)
+```
+
+#### **GET /api/user/usage** — Check Current Usage
+```typescript
+// OUTPUT: { used, limit, remaining, tier, resetAt }
+
+// For logged-in: Query today's count from Redis
+// For anonymous: Query session-based count from Redis
+```
+
+#### **GET/POST /api/user/readmes** — Manage Saved READMEs
+```typescript
+// GET: Return all saved READMEs for user
+// POST: Save a new README to Supabase
+// DELETE: Remove a saved README
+
+// Database: public.saved_readmes
+// Fields: id, user_id, title, repo_url, stack, sections, content
+// RLS: Users can only see their own READMEs
+```
+
+#### **GET /api/user/history** — Generation History
+```typescript
+// Return paginated generation history for user/session
+// Database: public.generation_history (rows: project_name, section_id, content, provider, created_at)
+// RLS: Users see only their history
+```
+
+#### **GET/POST /api/waitlist** — Waitlist Management
+```typescript
+// POST: Join waitlist for premium feature
+// GET: Get waitlist counts per feature
+// DB Table: public.waitlist
+// Unique Constraints: (email, feature), (user_id, feature)
+```
+
+---
+
+### **B. Data Flow: Repo → Generation → Output**
+
+```
+User enters GitHub URL
+    ↓
+POST /analyze
+    ↓
+┌─ Fetch files from GitHub API
+├─ Parse package.json (detect primary framework)
+├─ Detect package manager (npm/yarn/pnpm)
+├─ Check for Docker, CI, tests
+└─ Extract domain hints
+    ↓
+StackAnalyzer.analyze() → DetectedStack
+    ↓
+getSectionsForStack() → SectionConfig[]
+    ↓
+User selects sections (tier-gated)
+    ↓
+POST /generate (per section)
+    ↓
+┌─ Generate section prompt with context
+├─ Call AIOrchestrator
+│  ├─ Try Groq (fastest)
+│  ├─ If fails → Try Gemini
+│  ├─ If fails → Try OpenAI
+│  └─ If all fail → Return error
+├─ Validate response
+├─ Cache result (24h)
+├─ Increment usage
+└─ Log to generation_history
+    ↓
+PreviewEditor displays result
+    ↓
+User can: Edit → Copy → Download → Save → Regenerate
+```
+
+---
+
+## **4. AUTHENTICATION & AUTHORIZATION**
+
+### **Auth Flow**
+
+[src/lib/auth/provider.tsx](src/lib/auth/provider.tsx) uses **Supabase + GitHub OAuth**:
+
+```typescript
+// 1. User clicks "Sign in with GitHub"
+// 2. Redirected to GitHub OAuth page
+// 3. GitHub redirects to /auth/callback with code
+// 4. Supabase exchanges code for session
+// 5. Session stored in secure HTTP-only cookie
+// 6. AuthProvider fetches user profile from Supabase
+
+// Auth context provides:
+interface AuthContextType {
+  user: User | null                    // Supabase Auth user
+  session: Session | null              // OAuth session
+  profile: UserProfile | null          // App's user profile
+  tier: UserTier                       // computed from profile.tier
+  loading: boolean
+  signInWithGitHub: () => Promise<void>
+  signOut: () => Promise<void>
+  refreshProfile: () => Promise<void>
+}
+```
+
+### **User Tier System**
+
+Tiers are determined by user's `tier` field in Supabase `profiles` table:
+
+| Tier | Auth State | Generations/Day | Saved READMEs | Sections | AI Models |
+|------|-----------|---|---|---|---|
+| **Anonymous** | None | 5 | 0 | 6 basic | Gemini, Groq |
+| **Free** | GitHub OAuth | 50 | 10 | 12 | Gemini, Groq |
+| **Premium** | GitHub + Stripe | ∞ | ∞ | All | All 5 |
+
+[src/lib/tiers/config.ts](src/lib/tiers/config.ts):
+```typescript
+export const TIER_CONFIGS: Record<UserTier, TierConfig> = {
+  anonymous: { maxGenerationsPerDay: 5, availableSections: [...BASIC_SECTIONS] },
+  free: { maxGenerationsPerDay: 50, availableSections: [...FREE_SECTIONS] },
+  premium: { maxGenerationsPerDay: Infinity, availableSections: [...PREMIUM_SECTIONS] },
+}
+```
+
+### **Usage Tracking**
+
+[src/lib/tiers/usage.ts](src/lib/tiers/usage.ts) uses **Redis + Supabase**:
+
+```typescript
+// Redis Key: "usage:daily:{userId|anon:sessionId}:{YYYY-MM-DD}"
+// Fast check happens here before generation
+
+// Supabase: generation_history table (persistent log)
+// Rows recorded after each successful generation
+
+export async function checkUsage(userId, sessionId, tier): UsageCheckResult
+export async function incrementUsage(userId, sessionId, tier)
+```
+
+### **Rate Limiting**
+
+[src/lib/rate-limit.ts](src/lib/rate-limit.ts) uses **Upstash (Redis-backed)**:
+
+```typescript
+// Sliding window: 50 requests per 10 minutes per IP
+const rateLimiter = Ratelimit.slidingWindow(50, '10 m')
+
+// Checked in POST /api/generate via IP header
+const ip = request.headers.get('x-forwarded-for') || 'anonymous'
+const rateLimitResult = await checkRateLimit(ip)
+```
+
+---
+
+## **5. KEY COMPONENTS**
+
+### **React Components Architecture**
+
+```
+Header (Global)
+├─ LoginButton (if not authenticated)
+├─ UserMenu (if authenticated)
+│  └─ Avatar + dropdown (Dashboard, Sign Out)
+├─ UsageMeter
+│  └─ Shows X / Y with color coding (green → amber → red)
+└─ Admin link (if admin user)
+
+ReadmeWizard (Multi-step)
+├─ RepoInput (Step 1)
+│  ├─ URL input field
+│  ├─ OR Repo picker (authenticated users)
+│  └─ "Analyze" button
+├─ StackDetection (Step 2)
+│  ├─ Primary framework badge
+│  ├─ Secondary frameworks
+│  ├─ Feature flags (Docker, CI, Tests)
+│  └─ "Continue" button
+├─ SectionSelector (Step 3)
+│  ├─ Section cards (checkbox)
+│  ├─ 🔒 Locked sections (tier-gated)
+│  ├─ WaitlistModal trigger
+│  └─ "Generate N Sections" button
+├─ PreviewEditor (Step 4 & 5)
+│  ├─ 3 tabs: Preview | Raw | Edit
+│  ├─ Markdown renderer (react-markdown)
+│  ├─ Copy / Download / Clear cache / Save
+│  └─ Regenerate button
+
+Dashboard
+├─ User's saved READMEs list
+├─ Generation history timeline
+└─ Delete options
+
+Admin Panel
+└─ Stats: total generations, top users, providers used
+```
+
+### **Example Component: PreviewEditor**
+
+[src/components/wizard/PreviewEditor.tsx](src/components/wizard/PreviewEditor.tsx) handles:
+- Real-time markdown rendering (uses `react-markdown` + `rehype-highlight`)
+- Tab switching (Preview/Raw/Edit)
+- Copy to clipboard / Download as markdown
+- Save to dashboard (with tier check)
+- Clear cache (forces fresh AI generation)
+
+---
+
+## **6. DATA MODELS & DATABASE SCHEMA**
+
+### **TypeScript Types**
+
+[src/types/index.ts](src/types/index.ts):
+
+```typescript
+// ========== PROJECT MODELS ==========
+
+interface DetectedStack {
+  primary: StackType                    // 'nextjs' | 'react' | 'django' | etc.
+  secondary: StackType[]
+  language: string                      // 'TypeScript' | 'Python' | 'Go'
+  packageManager: 'npm' | 'yarn' | 'pnpm' | 'pip' | 'cargo'
+  hasDocker: boolean
+  hasCI: boolean
+  hasTesting: boolean
+  hasEnvFile: boolean
+  frameworks: string[]                  // ['React', 'Next.js', 'Tailwind']
+  dependencies: Record<string, string>  // {"react": "^18.0.0"}
+  domainHints: string[]
+}
+
+interface SectionConfig {
+  id: string
+  name: string
+  description: string
+  whyImportant: string
+  howToWrite: string
+  videoUrl?: string
+  docsUrl?: string
+  isRecommended: boolean
+  isRequired: boolean
+  stackSpecific: StackType[]
+  template: string
+  order: number
+}
+
+interface GeneratedSection {
+  id: string
+  content: string               // Markdown content
+  explanation: string          // Why this section matters
+}
+
+interface RepoAnalysis {
+  name: string
+  description: string | null
+  stack: DetectedStack
+  suggestedSections: SectionConfig[]
+  files: string[]
+}
+
+// ========== USER & AUTH MODELS ==========
+
+type UserTier = 'anonymous' | 'free' | 'premium'
+
+interface UserProfile {
+  id: string                    // UUID from Supabase auth
+  github_username: string | null
+  avatar_url: string | null
+  display_name: string | null
+  tier: UserTier
+  created_at: string            // ISO string
+  updated_at: string
+}
+
+interface UsageInfo {
+  used: number
+  limit: number
+  remaining: number
+  tier: UserTier
+  resetAt: string | null        // ISO string for next reset
+}
+
+interface SavedReadme {
+  id: string
+  user_id: string
+  title: string
+  repo_url: string | null
+  stack: string | null
+  sections: string[]            // Section IDs
+  content: string               // Full markdown
+  created_at: string
+}
+
+// ========== WAITLIST MODELS ==========
+
+type WaitlistFeature = 'private-repos' | 'premium-ai' | 'unlimited-generations' | etc.
+
+interface WaitlistEntry {
+  email: string
+  feature: WaitlistFeature
+  useCase?: string
+  valueLevel?: 'nice-to-have' | 'time-saver' | 'need-for-work'
+}
+```
+
+### **Supabase Database Schema**
+
+[supabase_migration.sql](supabase_migration.sql):
+
+```sql
+-- ========== AUTHENTICATION (managed by Supabase) ==========
+-- auth.users (Supabase built-in)
+--   id, email, raw_app_meta_data, raw_user_meta_data, created_at
+
+-- ========== PROFILES ==========
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  github_username TEXT,
+  avatar_url TEXT,
+  display_name TEXT,
+  tier TEXT DEFAULT 'free',  -- 'anonymous' | 'free' | 'premium'
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ========== SAVED READMES ==========
+CREATE TABLE saved_readmes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  repo_url TEXT,
+  stack TEXT,
+  sections JSONB,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_readmes_user ON saved_readmes(user_id, created_at DESC);
+
+-- ========== GENERATION HISTORY ==========
+CREATE TABLE generation_history (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  session_id TEXT,              -- for anonymous users
+  repo_url TEXT,
+  project_name TEXT NOT NULL,
+  stack TEXT,
+  section_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  provider TEXT NOT NULL,       -- 'groq' | 'gemini' | 'openai'
+  tier TEXT DEFAULT 'anonymous',
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_history_user 
+  ON generation_history(user_id, created_at DESC);
+CREATE INDEX idx_history_session 
+  ON generation_history(session_id, created_at DESC);
+
+-- ROW LEVEL SECURITY (RLS)
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saved_readmes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE generation_history ENABLE ROW LEVEL SECURITY;
+
+-- Users can view own data
+CREATE POLICY "Users can view own data" 
+  ON profiles FOR SELECT USING (auth.uid() = id);
+```
+
+---
+
+## **7. AI INTEGRATION**
+
+### **Provider Orchestration**
+
+[src/lib/ai/orchestrator.ts](src/lib/ai/orchestrator.ts):
+
+```typescript
+export class AIOrchestrator {
+  private providers: ProviderConfig[] = [
+    { provider: 'groq', priority: 1 },      // Fastest
+    { provider: 'gemini', priority: 2 },    // Good balance
+    { provider: 'openai', priority: 3 },    // Most capable
+    { provider: 'anthropic', priority: 4 }, // High quality
+    { provider: 'ollama', priority: 5 },    // Local fallback
+  ]
+
+  async generate(prompt: string, context?: string): Promise<AIResponse> {
+    // Try providers in priority order
+    for (const providerConfig of this.getProvidersInOrder()) {
+      try {
+        const response = await providerConfig.instance.generate(prompt, context)
+        return response  // Success! Return immediately
+      } catch (error) {
+        logger.warn(`${providerConfig.provider} failed, trying next...`)
+        continue  // Circuit breaker pattern
+      }
+    }
+    throw new Error('All AI providers failed')
+  }
+}
+```
+
+### **Provider Interface**
+
+All providers implement this interface:
+
+```typescript
+interface AIProviderInterface {
+  isConfigured(): boolean                        // Check if API key exists
+  generate(prompt: string, context?: string): Promise<AIResponse>
+}
+
+interface AIResponse {
+  content: string          // Generated markdown
+  provider: AIProvider     // Which provider generated this
+  tokensUsed?: number      // For billing
+}
+```
+
+### **Section Generation Prompt**
+
+[src/lib/ai/prompts/section-prompts.ts](src/lib/ai/prompts/section-prompts.ts):
+
+```typescript
+export function generateSectionPrompt(
+  section: SectionConfig,
+  stack: DetectedStack,
+  projectName: string,
+  additionalContext?: string,
+  repoUrl?: string
+): string {
+  // Example for "features" section:
+  return `You are a technical writer creating a README section.
+
+PROJECT: ${projectName}
+STACK: ${stack.primary} (${stack.language})
+DEPENDENCIES: [${Object.keys(stack.dependencies).join(', ')}]
+
+SECTION: Features
+TEMPLATE: Write 4-6 main features of this ${stack.primary} project
+
+RULES:
+1. ONLY describe features that actually exist in the code
+2. DO NOT invent features like "commenting" or "user profiles"
+3. Use package.json and file structure to determine functionality
+4. Format as bullet points with emojis
+5. Under 250 words, clean markdown only
+
+${additionalContext || ''}
+
+Generate the section now:`
+}
+```
+
+### **Configuration**
+
+[src/config/constants.ts](src/config/constants.ts):
+
+```typescript
+export const AI_CONFIG = {
+  DEFAULT_TEMPERATURE: 0.7,           // Creativity level
+  DEFAULT_MAX_TOKENS: 2048,           // Output token limit
+  RETRY_DELAY_MS: 2000,               // Wait before retry
+  MAX_RETRIES: 2,                     // Try twice
+};
+
+export const PROVIDER_PRIORITY = {
+  GROQ: 1,                            // Fastest (good for README)
+  GEMINI: 2,
+  OPENAI: 3,
+  ANTHROPIC: 4,
+  OLLAMA: 5,
+};
+```
+
+### **Example: OpenAI Provider**
+
+[src/lib/ai/providers/openai.ts](src/lib/ai/providers/openai.ts):
+
+```typescript
+export class OpenAIProvider implements AIProviderInterface {
+  private client: OpenAI
+
+  isConfigured(): boolean {
+    return !!process.env.OPENAI_API_KEY
+  }
+
+  async generate(prompt: string, context?: string): Promise<AIResponse> {
+    const response = await this.client.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: 'You are a technical README writer.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 2048,
+    })
+
+    return {
+      content: response.choices[0].message.content || '',
+      provider: 'openai',
+      tokensUsed: response.usage?.total_tokens,
+    }
+  }
+}
+```
+
+---
+
+## **8. BUSINESS LOGIC & WORKFLOWS**
+
+### **Workflow 1: Stack Detection**
+
+[src/lib/analyzers/index.ts](src/lib/analyzers/index.ts):
+
+```typescript
+export class StackAnalyzer {
+  analyze(): DetectedStack {
+    const packageJson = this.findFile('package.json')
+    const requirementsTxt = this.findFile('requirements.txt')
+    const goMod = this.findFile('go.mod')
+    const cargoToml = this.findFile('Cargo.toml')
+
+    let stack: DetectedStack = {
+      primary: 'unknown',
+      secondary: [],
+      language: 'unknown',
+      ...
+    }
+
+    // Detect by ecosystem
+    if (packageJson) {
+      stack = this.analyzeJavaScript(packageJson, stack)
+    } else if (requirementsTxt) {
+      stack = this.analyzePython(stack)
+    } else if (goMod) {
+      stack = this.analyzeGo(goMod, stack)
+    } else if (cargoToml) {
+      stack = this.analyzeRust(cargoToml, stack)
+    }
+
+    return stack
+  }
+
+  private analyzeJavaScript(packageJson: string, stack: DetectedStack) {
+    const pkg = JSON.parse(packageJson)
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
+
+    // Detect primary framework
+    if (allDeps['next']) {
+      stack.primary = 'nextjs'
+    } else if (allDeps['react']) {
+      stack.primary = 'react'
+    } else if (allDeps['@nestjs/core']) {
+      stack.primary = 'nestjs'
+    }
+
+    // Detect language
+    stack.language = allDeps['typescript'] ? 'TypeScript' : 'JavaScript'
+
+    return stack
+  }
+}
+```
+
+### **Workflow 2: Tier-Gated Section Access**
+
+[src/lib/tiers/feature-flags.ts](src/lib/tiers/feature-flags.ts):
+
+```typescript
+export function isSectionAvailable(sectionId: string, tier: UserTier): boolean {
+  const availableSections = getSectionLimit(tier)
+  return availableSections.includes(sectionId)
+}
+
+// BASIC_SECTIONS: 'header', 'installation', 'environment', 'license', 'docker', 'scripts'
+// FREE_SECTIONS: ...BASIC + 'tech-stack', 'features', 'api-docs', 'deployment', 'contributing', 'testing'
+// PREMIUM_SECTIONS: ...FREE (expandable)
+```
+
+### **Workflow 3: README Generation**
+
+```
+User submits /generate request
+    ↓
+1️⃣  Check Rate Limit (IP-based, DDoS protection)
+    ↓
+2️⃣  Authenticate user (optional, non-blocking)
+    ↓
+3️⃣  Get user tier (anonymous / free / premium)
+    ↓
+4️⃣  For each selected section:
+    ├─ Check section is available for tier
+    ├─ Check usage limit not exceeded
+    ├─ Check cache for existing generation
+    ├─ If cached & valid → use cache
+    ├─ Else → generate via AIOrchestrator
+    ├─ Validate output (not placeholder text)
+    ├─ Cache result (24 hours)
+    ├─ Increment usage counter
+    └─ Log to generation_history
+    ↓
+5️⃣  Return all generated sections with metadata
+```
+
+### **Workflow 4: Waitlist Management**
+
+[src/lib/waitlist/service.ts](src/lib/waitlist/service.ts):
+
+```typescript
+export async function joinWaitlist(entry: WaitlistEntry): WaitlistResponse {
+  // Atomic upsert — prevents race conditions at DB level
+  await db.from('waitlist').upsert(
+    { email: entry.email, feature: entry.feature, ... },
+    { onConflict: 'email, feature', ignoreDuplicates: true }
+  )
+
+  // Return current count for this feature
+  const count = await getWaitlistCount(entry.feature)
+  return { success: true, waitingCount: count }
+}
+```
+
+---
+
+## **9. CONFIGURATION & ENVIRONMENT**
+
+### **Environment Variables Required**
+
+```bash
+# ========== SUPABASE ==========
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx
+
+# ========== AI PROVIDERS ==========
+GROQ_SDK_API_KEY=xxx                 # Groq API key
+GOOGLE_API_KEY=xxx                   # Gemini API key
+OPENAI_API_KEY=xxx                   # OpenAI API key
+ANTHROPIC_API_KEY=xxx                # Anthropic API key
+OLLAMA_API_BASE_URL=http://localhost:11434  # Ollama base URL
+
+# ========== REDIS ==========
+UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+UPSTASH_REDIS_REST_TOKEN=xxx
+
+# ========== GITHUB ==========
+GITHUB_ACCESS_TOKEN=xxx              # (optional, for public repo fetching)
+
+# ========== STRIPE (for premium) ==========
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=xxx
+STRIPE_SECRET_KEY=xxx
+STRIPE_WEBHOOK_SECRET=xxx
+```
+
+### **Configuration Files**
+
+| File | Purpose |
+|------|---------|
+| [src/config/constants.ts](src/config/constants.ts) | AI config, rate limiting, provider priority, cache TTLs |
+| [src/lib/env.ts](src/lib/env.ts) | Environment variable validation + loading |
+| [next.config.ts](next.config.ts) | Next.js build configuration |
+| [tsconfig.json](tsconfig.json) | TypeScript strict mode enabled |
+| [jest.config.js](jest.config.js) | Jest test runner config |
+
+### **State Management**
+
+[src/store/readme-store.ts](src/store/readme-store.ts) — **Zustand store** for multi-step wizard:
+
+```typescript
+interface ReadmeState {
+  projectName: string
+  repoUrl: string
+  repoData: RepoData | null
+  stack: DetectedStack | null
+  availableSections: SectionConfig[]
+  selectedSectionIds: string[]
+  generatedSections: GeneratedSection[]
+  currentStep: 'input' | 'detect' | 'select' | 'generate' | 'preview'
+  isLoading: boolean
+
+  // Setters
+  setProjectInfo, setStack, setAvailableSections, toggleSection, ...
+}
+```
+
+---
+
+## **10. TESTING**
+
+### **Test Structure**
+
+```
+src/__tests__/
+├─ unit/
+│  ├─ stack-analyzer.test.ts      # StackAnalyzer class
+│  ├─ gemini-provider.test.ts     # AI provider
+│  ├─ bricks.test.ts              # Section templates
+│  ├─ readme-store.test.ts        # Zustand store
+│  └─ waitlist.test.ts            # Waitlist service
+├─ integration/
+│  ├─ api-analyze.test.ts         # POST /analyze endpoint
+│  ├─ api-generate.test.ts        # POST /generate endpoint
+│  └─ verify-groq.test.ts         # Groq provider integration
+└─ mocks/
+   ├─ gemini.ts                   # Mock Gemini API
+   ├─ redis.ts                    # Mock Redis/Upstash
+   └─ ... (other mocks)
+```
+
+### **Example Test: Stack Analyzer**
+
+[src/__tests__/unit/stack-analyzer.test.ts](src/__tests__/unit/stack-analyzer.test.ts):
+
+```typescript
+describe('StackAnalyzer', () => {
+  it('should detect Next.js with TypeScript', () => {
+    const files = [
+      {
+        name: 'package.json',
+        content: JSON.stringify({
+          dependencies: { next: '^14.0.0', typescript: '^5.0.0' },
+        }),
+      },
+    ]
+    const analyzer = new StackAnalyzer(files)
+    const result = analyzer.analyze()
+    
+    expect(result.primary).toBe('nextjs')
+    expect(result.language).toBe('TypeScript')
+    expect(result.frameworks).toContain('Next.js')
+  })
+
+  it('should detect pnpm as package manager', () => {
+    const files = [
+      { name: 'package.json', content: '{ "dependencies": { "next": "..." } }' },
+      { name: 'pnpm-lock.yaml', content: '' },
+    ]
+    const result = new StackAnalyzer(files).analyze()
+    expect(result.packageManager).toBe('pnpm')
+  })
+})
+```
+
+### **Test Commands**
+
+```bash
+npm test                  # Run all tests once
+npm run test:watch       # Watch mode
+npm run test:coverage    # Coverage report
+```
+
+### **Technologies**
+
+- **Jest** (v30) — Test runner
+- **@testing-library/react** — Component testing
+- **MSW** (Mock Service Worker) — API mocking
+- **ts-jest** — TypeScript support
+
+---
+
+## **ARCHITECTURE STRENGTHS & EXTENSION POINTS**
+
+### **✅ Strengths**
+
+1. **Robust AI Provider Fallback** — If Groq fails, seamlessly tries Gemini → OpenAI
+2. **Tier-Based Monetization** — Easy to upgrade anonymous → free → premium
+3. **Caching Strategy** — Redis (real-time) + Supabase (persistent), prevents duplicate generations
+4. **Optional Auth** — Users can generate without login; conversion path clear
+5. **Stack Detection Extensible** — Adding support for new languages/frameworks is straightforward
+
+### **🔧 Backend Overhaul Considerations**
+
+If redesigning the backend, focus on:
+
+1. **API Response Format Standardization** — Ensure all endpoints follow same schema
+2. **Error Handling** — Centralize error codes & messages
+3. **Logging/Observability** — Add structured logging for debugging generation failures
+4. **Database Indexes** — Already in place; ensure query performance is monitored
+5. **Rate Limiting Bypass** — Consider admin bypass or higher tiers
+6. **Generation Queue** — For heavy load, consider async job queue (Bull, RabbitMQ)
+7. **Provider Cost Tracking** — Log token usage per provider for analytics
+8. **Webhooks** — Add webhooks for completion notifications
+
+---
+
+## **QUICK START FOR NEW DEVELOPERS**
+
+```bash
+# 1. Clone & install
+git clone https://github.com/Benjaminofili/DevDocs.git
+cd DevDocs
+npm install
+
+# 2. Set up .env.local with all vars above
+
+# 3. Start dev server
+npm run dev
+
+# 4. Open http://localhost:3000
+
+# 5. Test flow:
+# - Private window → Generate 5 sections → Hit limit
+# - Sign in → Get 50 generations
+# - View history in /dashboard
+```
+
+---
+
+This is a **production-ready, feature-complete** SaaS application. The architecture is clean, extensible, and ready for the backend redesign you mentioned. The key insight: **everything is proportional to tiers**, making scaling and monetization straightforward.
+
+
