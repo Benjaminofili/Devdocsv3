@@ -809,7 +809,7 @@ function Step5({ sections, onBack, onRestart }: {
   onBack: () => void;
   onRestart: () => void;
 }) {
-  const { isLoggedIn } = useApp();
+  const { isLoggedIn, user } = useApp();
   const [tab, setTab] = useState<'preview' | 'raw' | 'edit'>('preview');
   const [editContent, setEditContent] = useState(() => sections.map(s => s.content).join('\n\n---\n\n'));
   const [copied, setCopied] = useState(false);
@@ -840,7 +840,7 @@ function Step5({ sections, onBack, onRestart }: {
     if (!isLoggedIn || !user) return;
     setSaving(true);
     try {
-      const { saveReadme } = await import('@/lib/firebase/saved-readmes');
+      const { saveReadme } = await import('../../lib/firebase/saved-readmes');
       await saveReadme(user.id, {
         projectName: sections[0]?.id || 'README',
         content: fullContent,
@@ -1028,7 +1028,12 @@ export function Generate() {
 
   useEffect(() => {
      if (analysisResult?.suggestedSections) {
-        setSelectedSections(analysisResult.suggestedSections);
+        // API returns SectionConfig objects, extract just the IDs
+        setSelectedSections(
+          analysisResult.suggestedSections
+            .filter((s: any) => s.isRecommended || s.isRequired)
+            .map((s: any) => s.id)
+        );
      }
   }, [analysisResult]);
 
@@ -1076,7 +1081,7 @@ export function Generate() {
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div key="step1" variants={stepVariants as any} initial="initial" animate="animate" exit="exit">
-              <Step1 onNext={data => { setRepoUrl(data.repoData.repoUrl || repoUrl); setAnalysisResult(data); setStep(2); }} />
+              <Step1 onNext={data => { setRepoUrl(prev => repoUrl || prev); setAnalysisResult(data); setStep(2); }} />
             </motion.div>
           )}
           {step === 2 && (
@@ -1098,7 +1103,7 @@ export function Generate() {
             <motion.div key="step4" variants={stepVariants as any} initial="initial" animate="animate" exit="exit">
               <Step4
                 selectedSections={selectedSections}
-                projectName={analysisResult?.stack?.repoName || 'Project'}
+                projectName={(() => { try { return new URL(repoUrl).pathname.split('/').filter(Boolean).pop() || 'Project'; } catch { return 'Project'; } })()}
                 repoUrl={repoUrl}
                 stack={analysisResult?.stack}
                 repoData={analysisResult?.repoData}

@@ -1,8 +1,8 @@
 // src/app/context/AppContext.tsx
 import { create } from 'zustand';
-import { auth, loginWithGitHub, logout as firebaseLogout, mapFirebaseUser } from '@/lib/firebase/auth';
+import { auth, loginWithGitHub, logout as firebaseLogout, mapFirebaseUser } from '../../lib/firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
-import { getCurrentUsage } from '@/lib/tiers/usage';
+import { getCurrentUsage } from '../../lib/tiers/usage';
 
 export type UserTier = 'anonymous' | 'free' | 'premium';
 
@@ -19,7 +19,7 @@ export interface UsageInfo {
   limit: number;
   remaining: number;
   tier: UserTier;
-  resetAt: string;
+  resetAt: string | null;
 }
 
 interface AppState {
