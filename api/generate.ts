@@ -9,12 +9,9 @@ import { GenerateRequestSchema } from '../src/lib/validators/schemas';
 import { isCacheValid, isContentCacheable } from '../src/lib/validators/cache';
 import { CACHE_CONFIG, API_MESSAGES } from '../src/config/constants';
 import { ZodError } from 'zod';
-import { getUserTier, getGenerationLimit } from '../src/lib/tiers/config';
-import { checkUsageLimit, recordUsage } from '../src/lib/tiers/usage';
+import { getGenerationLimit } from '../src/lib/tiers/config-server';
 import { isSectionAvailable, getSectionTierRequirement } from '../src/lib/tiers/feature-flags';
-import type { UserTier, UsageCheckResult, DetectedStack } from '../src/types';
-import { db } from '../src/lib/firebase/config';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import type { UserTier, DetectedStack } from '../src/types';
 
 interface RepoData {
   files: Array<{ name: string; content: string }>;
@@ -41,6 +38,21 @@ interface GeneratedSectionResult {
   provider: string;
 }
 
+// Redis-only usage tracking (no Firestore in serverless)
+async function checkUsageLimitRedis(identifier: string, tier: UserTier): Promise<{ allowed: boolean; remaining: number; limit: number }> {
+  const limit = getGenerationLimit(tier);
+  if (limit === Infinity) return { allowed: true, remaining: Infinity, limit };
+  
+  const key = `usage:daily:${identifier}:${new Date().toISOString().slice(0, 10)}`;
+  const current = await redis.incr(key);
+  if (current === 1) {
+    // Set TTL to end of day (86400 seconds)
+    await redis.expire(key, 86400);
+  }
+  const remaining = Math.max(0, limit - current);
+  return { allowed: current <= limit, remaining, limit };
+}
+
 export default async function handler(
   request: VercelRequest,
   response: VercelResponse,
@@ -52,7 +64,7 @@ export default async function handler(
   const startTime = Date.now();
 
   try {
-    // Rate limiting
+    // Rate limiting by IP
     const ip = (request.headers['x-forwarded-for'] as string) || 'anonymous';
     const rateLimitResult = await checkRateLimit(ip);
 
@@ -83,14 +95,12 @@ export default async function handler(
       domainHints: parseResult.data.stack.domainHints || [],
     };
 
-    // User and Session tracking from headers (passed by client)
+    // Determine tier from headers only (no Firestore needed)
     const userId = request.headers['x-user-id'] as string || null;
     const sessionId = request.headers['x-session-id'] as string || 'default-session';
     
-    let tier: UserTier = 'anonymous';
-    if (userId) {
-      tier = await getUserTier(userId);
-    }
+    // Simple tier: authenticated users are 'free', anonymous are 'anonymous'
+    const tier: UserTier = userId ? 'free' : 'anonymous';
 
     // Section availability check
     if (!isSectionAvailable(sectionId, tier)) {
@@ -102,29 +112,26 @@ export default async function handler(
       });
     }
 
-    // Usage limit check
-    let usageResult: UsageCheckResult;
+    // Usage limit check (Redis-only, no Firestore)
+    const usageIdentifier = userId || sessionId;
+    let usageAllowed = true;
+    let usageRemaining = 999;
+    let usageLimit = getGenerationLimit(tier);
+
     if (isFirstSection) {
-        usageResult = await checkUsageLimit(userId, sessionId, tier);
-        if (!usageResult.allowed) {
-          return response.status(429).json({
-            success: false,
-            error: 'usage_limit',
-            message: `Usage limit reached for ${tier} tier`,
-            usage: usageResult.usage,
-          });
-        }
-    } else {
-        usageResult = {
-            allowed: true,
-            usage: {
-              used: 0,
-              limit: getGenerationLimit(tier),
-              remaining: 1,
-              tier,
-              resetAt: new Date().toISOString()
-            }
-        };
+      const usageCheck = await checkUsageLimitRedis(usageIdentifier, tier);
+      usageAllowed = usageCheck.allowed;
+      usageRemaining = usageCheck.remaining;
+      usageLimit = usageCheck.limit;
+
+      if (!usageAllowed) {
+        return response.status(429).json({
+          success: false,
+          error: 'usage_limit',
+          message: `Usage limit reached for ${tier} tier`,
+          usage: { used: usageLimit, limit: usageLimit, remaining: 0, tier, resetAt: null },
+        });
+      }
     }
 
     // Find section config
@@ -146,20 +153,12 @@ export default async function handler(
 
     const cached = await redis.get<CachedResponse>(cacheKey);
     if (isCacheValid(cached)) {
-      if (isFirstSection) {
-        await recordUsage(userId, sessionId, tier, { action: 'generate', stack: stack.primary, repoUrl: repoUrl || undefined });
-      }
-      
       return response.status(200).json({
         success: true,
         data: cached,
         cached: true,
         tier,
-        usage: {
-            remaining: Math.max(0, usageResult.usage.remaining - 1),
-            limit: usageResult.usage.limit,
-            resetAt: usageResult.usage.resetAt,
-        }
+        usage: { remaining: usageRemaining, limit: usageLimit, resetAt: null },
       });
     }
 
@@ -177,35 +176,14 @@ export default async function handler(
       await redis.set(cacheKey, result, { ex: CACHE_CONFIG.GENERATION_TTL_SECONDS });
     }
 
-    // Track usage and log to history
-    if (isFirstSection) {
-      await recordUsage(userId, sessionId, tier, { action: 'generate', stack: stack.primary, repoUrl: repoUrl || undefined });
-    }
-
-    // Log to Firestore history
-    await addDoc(collection(db, 'generation_history'), {
-      user_id: userId,
-      session_id: sessionId,
-      repo_url: repoUrl || null,
-      project_name: projectName,
-      stack: stack.primary,
-      section_id: sectionId,
-      content: aiResponse.content,
-      provider: aiResponse.provider,
-      tier,
-      created_at: serverTimestamp(),
-    });
+    logger.info('✅ Generated section', { sectionId, provider: aiResponse.provider, ms: Date.now() - startTime });
 
     return response.status(200).json({
       success: true,
       data: result,
       cached: false,
       tier,
-      usage: {
-          remaining: Math.max(0, usageResult.usage.remaining - 1),
-          limit: usageResult.usage.limit,
-          resetAt: usageResult.usage.resetAt,
-      }
+      usage: { remaining: usageRemaining, limit: usageLimit, resetAt: null },
     });
 
   } catch (error) {
@@ -225,12 +203,17 @@ function buildEnhancedContext(
   sections.push(`Stack: ${stack.primary} (${stack.language})`);
   
   if (repoData?.packageJson) {
-      sections.push('\n=== PACKAGE.JSON ===');
-      if (repoData.packageJson.description) sections.push(`📌 DESCRIPTION: "${repoData.packageJson.description}"`);
-      if (repoData.packageJson.scripts) {
-          sections.push('\n📜 SCRIPTS:');
-          Object.entries(repoData.packageJson.scripts as Record<string, string>).forEach(([n, c]) => sections.push(`  ${n}: ${c}`));
-      }
+    sections.push('\n=== PACKAGE.JSON ===');
+    if (repoData.packageJson.description) sections.push(`📌 DESCRIPTION: "${repoData.packageJson.description}"`);
+    if (repoData.packageJson.scripts) {
+      sections.push('\n📜 SCRIPTS:');
+      Object.entries(repoData.packageJson.scripts as Record<string, string>).forEach(([n, c]) => sections.push(`  ${n}: ${c}`));
+    }
+  }
+  
+  if (repoData?.structure?.length) {
+    sections.push('\n=== FILE STRUCTURE ===');
+    sections.push(repoData.structure.slice(0, 30).join('\n'));
   }
   
   return sections.join('\n');
