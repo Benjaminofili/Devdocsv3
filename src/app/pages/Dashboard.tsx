@@ -81,7 +81,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'grid' | 'list'>('list');
-  const [tab, setTab] = useState<'readmes' | 'history'>('readmes');
+  const [tab, setTab] = useState<'readmes' | 'history' | 'billing'>('readmes');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const { initializeCheckout, isLoading: isPaying, error: payError } = usePaystackCheckout();
@@ -231,6 +231,7 @@ export function Dashboard() {
         {[
           { id: 'readmes' as const, label: 'Saved READMEs', icon: FileText },
           { id: 'history' as const, label: 'History', icon: History },
+          { id: 'billing' as const, label: 'Billing & Plan', icon: Zap },
         ].map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -383,6 +384,13 @@ export function Dashboard() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Billing Tab */}
+      {tab === 'billing' && (
+        <div className="max-w-2xl mx-auto">
+          <PricingSection />
         </div>
       )}
     </div>
