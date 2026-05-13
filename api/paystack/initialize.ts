@@ -41,7 +41,7 @@ export default async function handler(
       body: JSON.stringify({
         email,
         amount,
-        plan: 'PLN_gx2wn530m0i3w3m',
+        plan: 'PLN_y204dppkjg7r8mv',
         metadata: {
           userId
         }
