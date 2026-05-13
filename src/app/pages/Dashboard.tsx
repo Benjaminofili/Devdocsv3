@@ -160,7 +160,7 @@ export function Dashboard() {
 
     await initializeCheckout({
       email: user.email,
-      amount: 500000, // ₦5,000 in Kobo
+      amount: 600000, // ₦6,000 in Kobo
       userId: user.id,
     });
   };

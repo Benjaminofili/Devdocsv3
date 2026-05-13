@@ -15,7 +15,7 @@ export function PricingSection() {
 
     await initializeCheckout({
       email: user.email,
-      amount: 500000, // ₦5,000 in Kobo
+      amount: 600000, // ₦6,000 in Kobo
       userId: user.id,
     });
   };
@@ -40,7 +40,7 @@ export function PricingSection() {
           <p className="text-zinc-500 text-sm mt-1">Unlock the full power of AI documentation</p>
         </div>
         <div className="text-right">
-          <p className="text-3xl text-zinc-100" style={{ fontWeight: 700 }}>₦5,000</p>
+          <p className="text-3xl text-zinc-100" style={{ fontWeight: 700 }}>₦6,000</p>
           <p className="text-zinc-500 text-xs">per month</p>
         </div>
       </div>
