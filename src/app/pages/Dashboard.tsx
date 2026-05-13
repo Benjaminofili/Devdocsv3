@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SEOHead } from '../components/SEOHead';
+import { PricingSection } from '../components/PricingSection';
+import { usePaystackCheckout } from '../../hooks/usePaystackCheckout';
 
 interface SavedReadme {
   id: string;
@@ -82,6 +84,7 @@ export function Dashboard() {
   const [tab, setTab] = useState<'readmes' | 'history'>('readmes');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { initializeCheckout, isLoading: isPaying, error: payError } = usePaystackCheckout();
 
   useEffect(() => {
     if (!isLoggedIn || !user) return;
@@ -147,6 +150,19 @@ export function Dashboard() {
     await navigator.clipboard.writeText(content);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleUpgrade = async () => {
+    if (!user || !user.email) {
+      toast.error('User email required for payment');
+      return;
+    }
+
+    await initializeCheckout({
+      email: user.email,
+      amount: 500000, // ₦5,000 in Kobo
+      userId: user.id,
+    });
   };
 
   const savedLimit = tier === 'premium' ? Infinity : 10;
@@ -257,9 +273,14 @@ export function Dashboard() {
           {savedCount >= (savedLimit === Infinity ? Infinity : savedLimit * 0.8) && savedLimit !== Infinity && (
             <div className="flex items-center gap-3 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl">
               <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-              <p className="text-amber-300 text-sm">
-                You've used {savedCount}/{savedLimit} README slots. <button className="text-amber-400 underline hover:text-amber-300">Upgrade to Premium</button> for unlimited saves.
-              </p>
+              <div className="flex-1">
+                <p className="text-amber-300 text-sm">
+                  You've used {savedCount}/{savedLimit} README slots. <button onClick={handleUpgrade} disabled={isPaying} className="text-amber-400 underline hover:text-amber-300 disabled:opacity-50">
+                    {isPaying ? 'Redirecting...' : 'Upgrade to Premium'}
+                  </button> for unlimited saves.
+                </p>
+                {payError && <p className="text-red-400 text-xs mt-1">{payError}</p>}
+              </div>
             </div>
           )}
 

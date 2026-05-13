@@ -1,0 +1,67 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import crypto from 'crypto';
+import admin from 'firebase-admin';
+
+// Initialize Firebase Admin if not already initialized
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+  });
+}
+
+const db = admin.firestore();
+
+/**
+ * Vercel Serverless Function: Paystack Webhook Handler
+ * Endpoint: /api/paystack/webhook
+ */
+export default async function handler(
+  request: VercelRequest,
+  response: VercelResponse,
+) {
+  if (request.method !== 'POST') {
+    return response.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  const signature = request.headers['x-paystack-signature'] as string;
+  const secret = process.env.PAYSTACK_SECRET_KEY as string;
+
+  // Security: Validate Paystack signature
+  const hash = crypto
+    .createHmac('sha512', secret)
+    .update(JSON.stringify(request.body))
+    .digest('hex');
+
+  if (hash !== signature) {
+    console.error('[API/PAYSTACK/WEBHOOK] Invalid Signature');
+    return response.status(401).json({ error: 'Invalid signature' });
+  }
+
+  const event = request.body;
+
+  try {
+    if (event.event === 'charge.success' || event.event === 'subscription.create') {
+      const userId = event.data.metadata?.userId;
+
+      if (userId) {
+        await db.collection('users').doc(userId).update({
+          tier: 'premium',
+          subscriptionStatus: 'active',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        
+        console.log(`[API/PAYSTACK/WEBHOOK] User ${userId} upgraded to premium`);
+      }
+    }
+
+    return response.status(200).send('OK');
+
+  } catch (error) {
+    console.error('[API/PAYSTACK/WEBHOOK] Error processing event:', error);
+    return response.status(200).send('Processed with errors');
+  }
+}

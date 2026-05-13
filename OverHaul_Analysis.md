@@ -18,13 +18,13 @@ Based on my deep analysis of your DevDocs project, here's a comprehensive breakd
 - **Per-Section Generation**: Each section generated individually with context-specific prompts
 - **Tier Gating**: Anonymous (5/day), Free (50/day), Premium (unlimited)
 - **Caching**: 24-hour cache prevents duplicate generations
-- **Usage Tracking**: Dual Redis (real-time) + Supabase (persistent) tracking
+- **Usage Tracking**: Dual Redis (real-time) + Firebase Firestore (persistent) tracking
 
 ### **3. Authentication & Tiers**
-- **GitHub OAuth** via Supabase Auth
+- **GitHub OAuth** via Firebase Auth
 - **Optional Auth**: Generation works without login; upgrades with authentication
 - **Session-Based Anonymous**: Uses `readme_session` cookie for anon users
-- **Tier Logic**: Computed from Supabase `profiles.tier` field
+- **Tier Logic**: Computed from Firebase Firestore `profiles.tier` field
 
 ### **4. State Management**
 - **Zustand Store**: Manages 5-step wizard flow across page navigation
@@ -34,7 +34,7 @@ Based on my deep analysis of your DevDocs project, here's a comprehensive breakd
 
 ### **API Routes Structure**
 ```
-src/app/api/
+api/
 ├── analyze/           # POST - Repo analysis
 ├── generate/          # POST - Section generation  
 ├── user/
@@ -43,8 +43,7 @@ src/app/api/
 │   └── history/       # GET - Generation history
 ├── waitlist/          # POST - Join waitlist
 ├── clear-cache/       # POST - Clear Redis cache
-├── feedback/          # POST - User feedback
-└── stripe/webhook/    # POST - Payment webhooks
+└── feedback/          # POST - User feedback
 ```
 
 ### **Data Flow Architecture**
@@ -74,12 +73,12 @@ const PROVIDER_PRIORITY = {
 
 #### **Usage Tracking** (usage.ts)
 - **Redis Keys**: `usage:daily:{userId}:{date}` for fast checks
-- **Supabase**: `generation_history` table for persistent logs
+- **Firebase Firestore**: `generation_history` table for persistent logs
 - **Atomic Operations**: Prevents race conditions in usage counting
 
 ## **Database Schema & Data Models**
 
-### **Supabase Tables**
+### **Firebase Firestore Collections**
 - **`profiles`**: User data (tier, GitHub info)
 - **`saved_readmes`**: User's saved documentation
 - **`generation_history`**: All generation logs with provider tracking
@@ -105,7 +104,7 @@ const PROVIDER_PRIORITY = {
 - **Overhaul Opportunity**: Advanced throttling, burst handling, analytics dashboard
 
 ### **4. Authentication Flow**
-- **Current**: Basic Supabase + GitHub
+- **Current**: Basic Firebase Auth + GitHub
 - **Overhaul Opportunity**: Multi-provider auth, SSO, enterprise integrations
 
 ### **5. Background Processing**
@@ -116,10 +115,11 @@ const PROVIDER_PRIORITY = {
 
 **Required Environment Variables:**
 - AI Providers: GROQ, GEMINI, OPENAI, ANTHROPIC, OLLAMA
-- Supabase: URL + anon key
+- Firebase: Config object (API Key, Project ID, etc.)
 - Redis: Upstash URL + token
 - GitHub: Access token (optional)
-- Stripe: For premium payments
+
+**Monetization and tier upgrades are strictly handled via the official 'Run Payments with Stripe' Firebase Extension. Do not write manual webhook routes.**
 
 ## **Testing Infrastructure**
 
