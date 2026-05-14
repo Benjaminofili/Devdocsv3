@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import {
   FileText, Trash2, Eye, Plus, Github, Clock, Star, Layers,
   Search, Filter, BookOpen, Zap, AlertCircle, LayoutGrid, List,
-  Download, Copy, Check, History
+  Download, Copy, Check, History, Loader2
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SEOHead } from '../components/SEOHead';
@@ -75,7 +75,7 @@ function timeAgo(iso: string) {
 }
 
 export function Dashboard() {
-  const { isLoggedIn, user, tier, usage } = useApp();
+  const { isLoggedIn, isLoggingIn, user, tier, usage, login } = useApp();
   const [readmes, setReadmes] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,9 +120,24 @@ export function Dashboard() {
         </div>
         <h2 className="text-zinc-100 text-2xl mb-2" style={{ fontWeight: 700 }}>Sign in to access your dashboard</h2>
         <p className="text-zinc-400 max-w-md mb-6">Save generated READMEs, view your history, and manage your projects — all in one place.</p>
-        <Link to="/" className="flex items-center gap-2 px-6 py-3 bg-zinc-100 hover:bg-white text-zinc-900 rounded-xl transition-colors" style={{ fontWeight: 600 }}>
-          <Github className="w-4 h-4" /> Sign in with GitHub
-        </Link>
+        <button 
+          onClick={() => login()}
+          disabled={isLoggingIn}
+          className="flex items-center gap-2 px-6 py-3 bg-zinc-100 hover:bg-white disabled:bg-zinc-700 disabled:text-zinc-400 text-zinc-900 rounded-xl transition-colors" 
+          style={{ fontWeight: 600 }}
+        >
+          {isLoggingIn ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Connecting...</span>
+            </>
+          ) : (
+            <>
+              <Github className="w-4 h-4" /> 
+              Sign in with GitHub
+            </>
+          )}
+        </button>
       </div>
     );
   }

@@ -6,22 +6,38 @@ import {
   onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
-import { auth } from './config';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from './config';
 import { getUserTier } from '../tiers/config';
 
 const githubProvider = new GithubAuthProvider();
+githubProvider.addScope('repo');
 
 export { auth };
 
 export const loginWithGitHub = async () => {
   try {
     const result = await signInWithPopup(auth, githubProvider);
+    
+    // Capture GitHub Access Token
+    const credential = GithubAuthProvider.credentialFromResult(result);
+    const githubToken = credential?.accessToken;
+
+    if (githubToken) {
+      // Securely store the token for backend use
+      await setDoc(doc(db, 'users', result.user.uid), { 
+        githubToken,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    }
+
     return result.user;
   } catch (error) {
     console.error('Login error:', error);
     throw error;
   }
 };
+
 
 export const logout = async () => {
   try {

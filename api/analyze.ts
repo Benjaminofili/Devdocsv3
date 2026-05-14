@@ -7,6 +7,7 @@ import { AnalyzeRequestSchema } from '../src/lib/validators/schemas';
 import { logger } from '../src/lib/logger';
 import { getEnv } from '../src/lib/env';
 import { GITHUB_CONFIG } from '../src/config/constants';
+import { withSentry } from '../src/lib/withSentry';
 
 interface FileContent {
   name: string;
@@ -24,7 +25,7 @@ const isImportantFile = (fileName: string): boolean => {
   return (GITHUB_CONFIG.IMPORTANT_FILES as readonly string[]).includes(fileName);
 };
 
-export default async function handler(
+async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
@@ -128,6 +129,9 @@ export default async function handler(
     return response.status(500).json({ error: 'Failed to analyze repository', details: errorMessage });
   }
 }
+
+export default withSentry(handler);
+
 
 async function fetchRepoContents(repoUrl: string): Promise<FileContent[]> {
   const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);

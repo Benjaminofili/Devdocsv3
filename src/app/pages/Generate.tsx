@@ -63,12 +63,6 @@ const ALL_SECTIONS: Section[] = [
   { id: 'testing', label: 'Testing', description: 'How to run and write tests', tier: 'free' },
 ];
 
-const MOCK_REPOS = [
-  { name: 'my-nextjs-app', language: 'TypeScript', stars: 42, updated: '2 days ago' },
-  { name: 'api-server', language: 'Node.js', stars: 17, updated: '1 week ago' },
-  { name: 'react-dashboard', language: 'JavaScript', stars: 8, updated: '3 weeks ago' },
-  { name: 'ml-pipeline', language: 'Python', stars: 103, updated: '5 days ago' },
-];
 
 const MOCK_STACK: StackData = {
   primary: 'Next.js',
@@ -316,14 +310,53 @@ function StepIndicator({ step }: { step: WizardStep }) {
 }
 
 // ─── Step 1: Repo Input ─────────────────────────────────────────────────────
+import { auth } from '../../lib/firebase/auth';
+
 function Step1({ onNext }: { onNext: (data: any) => void }) {
   const { isLoggedIn, sessionId, user } = useApp();
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPicker, setShowPicker] = useState(false);
+  const [repos, setRepos] = useState<any[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
 
   const validate = (val: string) => /^https?:\/\/github\.com\/[^/]+\/[^/]+/.test(val);
+
+  const fetchRepos = async () => {
+    if (repos.length > 0 || loadingRepos) return;
+    setLoadingRepos(true);
+    try {
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) throw new Error('Not authenticated');
+      
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch('/api/github/repos', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to fetch repositories');
+      }
+
+      const data = await res.json();
+      setRepos(data);
+    } catch (err) {
+      console.error('Failed to fetch repos:', err);
+      toast.error(err instanceof Error ? err.message : 'Could not load repositories');
+    } finally {
+      setLoadingRepos(false);
+    }
+  };
+
+  const handleTogglePicker = () => {
+    const next = !showPicker;
+    setShowPicker(next);
+    if (next) fetchRepos();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -356,10 +389,20 @@ function Step1({ onNext }: { onNext: (data: any) => void }) {
     }
   };
 
-  const pickRepo = (name: string) => {
-    const username = user?.email?.split('@')[0] || 'username'; // Fallback to email prefix or 'username'
-    setUrl(`https://github.com/${username}/${name}`);
+  const pickRepo = (repo: any) => {
+    setUrl(repo.html_url);
     setShowPicker(false);
+  };
+
+  const formatUpdateDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days < 30) return `${days} days ago`;
+    return date.toLocaleDateString();
   };
 
   return (
@@ -401,37 +444,47 @@ function Step1({ onNext }: { onNext: (data: any) => void }) {
       {isLoggedIn && (
         <div className="border border-zinc-800 rounded-xl overflow-hidden">
           <button
-            onClick={() => setShowPicker(o => !o)}
+            onClick={handleTogglePicker}
             className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900 hover:bg-zinc-800/80 transition-colors text-sm"
           >
             <span className="text-zinc-300" style={{ fontWeight: 500 }}>Or pick from your repositories</span>
             <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform ${showPicker ? 'rotate-180' : ''}`} />
           </button>
           {showPicker && (
-            <div className="divide-y divide-zinc-800">
-              {MOCK_REPOS.map(repo => (
-                <button
-                  key={repo.name}
-                  onClick={() => pickRepo(repo.name)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Github className="w-4 h-4 text-zinc-500" />
-                    <div className="text-left">
-                      <p className="text-zinc-200 text-sm font-mono">{repo.name}</p>
-                      <p className="text-zinc-500 text-xs">{repo.language}</p>
+            <div className="divide-y divide-zinc-800 max-h-64 overflow-y-auto">
+              {loadingRepos ? (
+                <div className="py-8 flex flex-col items-center justify-center gap-2 text-zinc-500 bg-zinc-900/50">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span className="text-xs">Fetching repositories...</span>
+                </div>
+              ) : repos.length === 0 ? (
+                <div className="py-8 text-center text-zinc-500 text-xs">No repositories found.</div>
+              ) : (
+                repos.map(repo => (
+                  <button
+                    key={repo.id}
+                    onClick={() => pickRepo(repo)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Github className="w-4 h-4 text-zinc-500" />
+                      <div className="text-left">
+                        <p className="text-zinc-200 text-sm font-mono">{repo.name}</p>
+                        <p className="text-zinc-500 text-xs">{repo.language || 'Plain text'}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 text-zinc-600 text-xs">
-                    <span className="flex items-center gap-1"><Star className="w-3 h-3" />{repo.stars}</span>
-                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{repo.updated}</span>
-                  </div>
-                </button>
-              ))}
+                    <div className="flex items-center gap-3 text-zinc-600 text-xs">
+                      <span className="flex items-center gap-1"><Star className="w-3 h-3" />{repo.stargazers_count}</span>
+                      <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatUpdateDate(repo.updated_at)}</span>
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>
       )}
+
 
       <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
         <div className="flex items-start gap-3">

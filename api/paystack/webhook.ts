@@ -19,7 +19,9 @@ const db = admin.firestore();
  * Vercel Serverless Function: Paystack Webhook Handler
  * Endpoint: /api/paystack/webhook
  */
-export default async function handler(
+import { withSentry } from '../../src/lib/withSentry';
+
+async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
@@ -65,3 +67,6 @@ export default async function handler(
     return response.status(200).send('Processed with errors');
   }
 }
+
+export default withSentry(handler);
+

@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import {
   BookOpen, Github, LayoutDashboard, LogOut, ChevronDown, Zap, Shield, User,
-  Menu, X, Home, FileText, Settings, Search
+  Menu, X, Home, FileText, Settings, Search, Loader2
 } from 'lucide-react';
 import { useApp, UserTier } from '../context/AppContext';
 import { UsageMeter } from './UsageMeter';
 import { DevDocsIcon } from './DevDocsIcon';
 
 export function Header() {
-  const { isLoggedIn, user, tier, login, logout } = useApp();
+  const { isLoggedIn, isLoggingIn, user, tier, login, logout } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -115,14 +115,25 @@ export function Header() {
             ) : (
               <button
                 onClick={() => login()}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 text-sm transition-colors"
+                disabled={isLoggingIn}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white disabled:bg-zinc-700 disabled:text-zinc-400 text-zinc-900 text-sm transition-colors"
                 style={{ fontWeight: 500 }}
               >
-                <Github className="w-4 h-4" />
-                <span>Sign in</span>
+                {isLoggingIn ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Github className="w-4 h-4" />
+                    <span>Sign in</span>
+                  </>
+                )}
               </button>
             )}
           </div>
+
 
           {/* Mobile hamburger */}
           <button
@@ -190,13 +201,24 @@ export function Header() {
               ) : (
                 <button
                   onClick={() => { login(); closeMobile(); }}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-900 text-sm transition-colors"
+                  disabled={isLoggingIn}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-100 hover:bg-white disabled:bg-zinc-700 disabled:text-zinc-400 text-zinc-900 text-sm transition-colors"
                   style={{ fontWeight: 500 }}
                 >
-                  <Github className="w-4 h-4" />
-                  Sign in with GitHub
+                  {isLoggingIn ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Github className="w-4 h-4" />
+                      <span>Sign in with GitHub</span>
+                    </>
+                  )}
                 </button>
               )}
+
             </div>
           </div>
         </>

@@ -1,10 +1,21 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import admin from 'firebase-admin';
+import { withSentry } from '../../src/lib/withSentry';
 
-/**
- * Vercel Serverless Function: Proxy for GitHub User Repositories
- * Endpoint: /api/github/repos
- */
-export default async function handler(
+// Initialize Firebase Admin if not already initialized
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+  });
+}
+
+const db = admin.firestore();
+
+async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
@@ -30,12 +41,27 @@ export default async function handler(
     return response.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
   }
 
-  const token = authHeader.split(' ')[1];
+  const firebaseToken = authHeader.split(' ')[1];
 
   try {
+    // 1. Verify Firebase ID Token
+    const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+    const uid = decodedToken.uid;
+
+    // 2. Fetch GitHub token from Firestore
+    const userDoc = await db.collection('users').doc(uid).get();
+    const githubToken = userDoc.data()?.githubToken;
+
+    if (!githubToken) {
+      return response.status(403).json({ 
+        error: 'GitHub token not found. Please re-authenticate.' 
+      });
+    }
+
+    // 3. Fetch repositories from GitHub
     const githubResponse = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'DevDocs-V3-Proxy'
       }
@@ -54,6 +80,10 @@ export default async function handler(
 
   } catch (error) {
     console.error('[API/GITHUB/REPOS] Error:', error);
-    return response.status(500).json({ error: 'Internal Server Error' });
+    return response.status(500).json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 }
+
+
+export default withSentry(handler);
+

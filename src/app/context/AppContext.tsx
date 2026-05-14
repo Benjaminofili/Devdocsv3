@@ -26,6 +26,7 @@ interface AppState {
   user: User | null;
   usage: UsageInfo;
   isLoggedIn: boolean;
+  isLoggingIn: boolean;
   tier: UserTier;
   sessionId: string;
   waitlistOpen: boolean;
@@ -51,6 +52,7 @@ export const useApp = create<AppState>((set, get) => ({
   user: null,
   usage: DEFAULT_USAGE('anonymous'),
   isLoggedIn: false,
+  isLoggingIn: false,
   tier: 'anonymous',
   sessionId: localStorage.getItem('devdocs_session_id') || (() => {
     const id = crypto.randomUUID();
@@ -61,8 +63,14 @@ export const useApp = create<AppState>((set, get) => ({
   waitlistFeature: '',
 
   login: async () => {
-    await loginWithGitHub();
+    set({ isLoggingIn: true });
+    try {
+      await loginWithGitHub();
+    } finally {
+      set({ isLoggingIn: false });
+    }
   },
+
 
   logout: async () => {
     await firebaseLogout();

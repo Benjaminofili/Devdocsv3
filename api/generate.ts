@@ -53,7 +53,9 @@ async function checkUsageLimitRedis(identifier: string, tier: UserTier): Promise
   return { allowed: current <= limit, remaining, limit };
 }
 
-export default async function handler(
+import { withSentry } from '../src/lib/withSentry';
+
+async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
@@ -191,6 +193,9 @@ export default async function handler(
     return response.status(500).json({ success: false, error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 }
+
+export default withSentry(handler);
+
 
 function buildEnhancedContext(
   repoData: RepoData | undefined,

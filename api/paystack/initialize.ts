@@ -4,7 +4,9 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
  * Vercel Serverless Function: Initialize Paystack Subscription Transaction
  * Endpoint: /api/paystack/initialize
  */
-export default async function handler(
+import { withSentry } from '../../src/lib/withSentry';
+
+async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
@@ -67,3 +69,6 @@ export default async function handler(
     return response.status(500).json({ error: 'Internal Server Error' });
   }
 }
+
+export default withSentry(handler);
+
