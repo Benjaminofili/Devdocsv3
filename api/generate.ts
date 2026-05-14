@@ -95,7 +95,10 @@ async function handler(
     const stack: DetectedStack = {
       ...parseResult.data.stack,
       domainHints: parseResult.data.stack.domainHints || [],
+      contextFiles: parseResult.data.stack.contextFiles || [],
     };
+
+    console.log(`[GENERATE] Received ${stack.contextFiles?.length || 0} context files`);
 
     // Determine tier from headers only (no Firestore needed)
     const userId = request.headers['x-user-id'] as string || null;

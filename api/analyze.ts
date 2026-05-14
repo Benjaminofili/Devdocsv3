@@ -235,7 +235,7 @@ async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise
   const rootContents: GitHubFile[] = await rootResponse.json() as GitHubFile[];
 
   // 3. Hydrate Context (High-value files)
-  const highValueRegex = /^(package\.json|requirements\.txt|models\.py|schema\.prisma|seed_data\.py)$/i;
+  const highValueRegex = /(^|\/)(package\.json|requirements\.txt|models\.py|schema\.prisma|seed_data\.py)$/i;
   const matchedHighValue = rootContents
     .filter(f => highValueRegex.test(f.name) && f.type === 'file')
     .slice(0, 4);

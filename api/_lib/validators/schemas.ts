@@ -26,6 +26,10 @@ export const DetectedStackSchema = z.object({
   frameworks: z.array(z.string()),
   dependencies: z.record(z.string(), z.string()),
   domainHints: z.array(z.string()).optional(),
+  contextFiles: z.array(z.object({
+    name: z.string(),
+    content: z.string(),
+  })).optional(),
 });
 
 // Repo Data Schema
