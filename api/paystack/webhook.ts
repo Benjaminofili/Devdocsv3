@@ -2,24 +2,48 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
 import admin from 'firebase-admin';
 
-// Initialize Firebase Admin if not already initialized
+// Bulletproof Firebase Initialization
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  });
+  try {
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY;
+
+    if (privateKey) {
+      // 1. Remove any stray wrapping quotes that Vercel might have added
+      privateKey = privateKey.replace(/^['"]|['"]$/g, '');
+      
+      // 2. Fix escaped newlines (only if they exist as literal text)
+      if (privateKey.includes('\\n')) {
+        privateKey = privateKey.replace(/\\n/g, '\n');
+      }
+    }
+
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error("Missing Firebase credentials in webhook");
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+    });
+    console.log('[FIREBASE WEBHOOK] Successfully initialized');
+  } catch (error) {
+    console.error('[FIREBASE WEBHOOK INIT ERROR]', error);
+    throw error;
+  }
 }
 
-const db = admin.firestore();
+const db = admin.apps.length ? admin.firestore() : null;
 
 /**
  * Vercel Serverless Function: Paystack Webhook Handler
  * Endpoint: /api/paystack/webhook
  */
-import { withSentry } from '../../src/lib/withSentry';
+import { withSentry } from '../_lib/withSentry.js';
 
 async function handler(
   request: VercelRequest,
@@ -50,6 +74,9 @@ async function handler(
       const userId = event.data.metadata?.userId;
 
       if (userId) {
+        if (!db) {
+          throw new Error('Database not initialized in webhook');
+        }
         await db.collection('users').doc(userId).update({
           tier: 'premium',
           subscriptionStatus: 'active',

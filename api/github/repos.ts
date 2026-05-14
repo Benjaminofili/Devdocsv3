@@ -2,28 +2,39 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
 import { withSentry } from '../_lib/withSentry.js';
 
-// 1. Robust Initialization
 if (!admin.apps.length) {
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  try {
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY;
 
-  // If ANY of these are missing, we THROW here so we can see it in the logs
-  if (!projectId || !clientEmail || !privateKey) {
-    const missing = [];
-    if (!projectId) missing.push('PROJECT_ID');
-    if (!clientEmail) missing.push('CLIENT_EMAIL');
-    if (!privateKey) missing.push('PRIVATE_KEY');
-    throw new Error(`Firebase Admin failed to initialize. Missing: ${missing.join(', ')}`);
+    if (privateKey) {
+      // 1. Remove any stray wrapping quotes that Vercel might have added
+      privateKey = privateKey.replace(/^['"]|['"]$/g, '');
+      
+      // 2. Fix escaped newlines (only if they exist as literal text)
+      if (privateKey.includes('\\n')) {
+        privateKey = privateKey.replace(/\\n/g, '\n');
+      }
+    }
+
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error("Missing Firebase credentials");
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+    });
+    console.log('[FIREBASE] Successfully initialized');
+  } catch (error) {
+    console.error('[FIREBASE INIT ERROR]', error);
+    // This will show up in Vercel logs to tell us EXACTLY what the key looks like
+    throw error;
   }
-
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey: privateKey.replace(/\\n/g, '\n'),
-    }),
-  });
 }
 
 // 2. Access services safely

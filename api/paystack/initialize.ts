@@ -4,7 +4,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
  * Vercel Serverless Function: Initialize Paystack Subscription Transaction
  * Endpoint: /api/paystack/initialize
  */
-import { withSentry } from '../../src/lib/withSentry';
+import { withSentry } from '../_lib/withSentry.js';
 
 async function handler(
   request: VercelRequest,
