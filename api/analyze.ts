@@ -8,6 +8,7 @@ import { logger } from './_lib/logger.js';
 import { getEnv } from './_lib/env.js';
 import { GITHUB_CONFIG } from './_lib/constants.js';
 import { withSentry } from './_lib/withSentry.js';
+import { minifyContext } from './_lib/utils.js';
 import admin from 'firebase-admin';
 
 if (!admin.apps.length) {
@@ -106,15 +107,19 @@ async function handler(
     }
 
     let fileContents: FileContent[] = [];
+    let contextFiles: { name: string, content: string }[] = [];
 
     if (repoUrl) {
-      fileContents = await fetchRepoContents(repoUrl, githubToken);
+      const fetched = await fetchRepoContents(repoUrl, githubToken);
+      fileContents = fetched.fileContents;
+      contextFiles = fetched.contextFiles;
     } else if (files) {
       fileContents = files;
     }
 
     const analyzer = new StackAnalyzer(fileContents);
     const stack = analyzer.analyze();
+    stack.contextFiles = contextFiles;
     const suggestedSections = getSectionsForStack(stack);
 
     const packageJsonFile = fileContents.find(f => f.name === 'package.json');
@@ -186,7 +191,7 @@ async function handler(
 export default withSentry(handler);
 
 
-async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise<FileContent[]> {
+async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise<{ fileContents: FileContent[], contextFiles: { name: string, content: string }[] }> {
   const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (!match) throw new Error('Invalid GitHub URL');
 
@@ -210,6 +215,7 @@ async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise
   }
 
   const fileContents: FileContent[] = [];
+  const contextFiles: { name: string, content: string }[] = [];
   const url = `https://api.github.com/repos/${owner}/${cleanRepo}/contents`;
 
   // 2. The Fetch with Auto-Retry for Public Repos
@@ -228,10 +234,35 @@ async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise
 
   const rootContents: GitHubFile[] = await rootResponse.json() as GitHubFile[];
 
+  // 3. Hydrate Context (High-value files)
+  const highValueRegex = /^(package\.json|requirements\.txt|models\.py|schema\.prisma|seed_data\.py)$/i;
+  const matchedHighValue = rootContents
+    .filter(f => highValueRegex.test(f.name) && f.type === 'file')
+    .slice(0, 4);
+
+  for (const file of matchedHighValue) {
+    if (file.download_url) {
+      try {
+        const fileResponse = await fetch(file.download_url, { headers });
+        if (fileResponse.ok) {
+          const rawContent = await fileResponse.text();
+          contextFiles.push({
+            name: file.name,
+            content: minifyContext(rawContent, file.name)
+          });
+          logger.info(`[CONTEXT] Hydrated ${file.name}`);
+        }
+      } catch (e) {
+        logger.warn(`Failed to hydrate context for ${file.name}`);
+      }
+    }
+  }
+
+  // 4. Fetch Important Files for Analysis
   for (const file of rootContents) {
     if (isImportantFile(file.name) && file.type === 'file' && file.download_url) {
       try {
-        const fileResponse = await fetch(file.download_url);
+        const fileResponse = await fetch(file.download_url, { headers });
         if (fileResponse.ok) {
           const content = await fileResponse.text();
           fileContents.push({ name: file.name, content });
@@ -294,5 +325,5 @@ async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise
     }
   }
 
-  return fileContents;
+  return { fileContents, contextFiles };
 }

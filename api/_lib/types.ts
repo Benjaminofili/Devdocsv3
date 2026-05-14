@@ -50,6 +50,7 @@ export interface DetectedStack {
   hasEnvFile?: boolean;
   domainHints?: string[];
   version?: string;
+  contextFiles?: { name: string; content: string }[];
 }
 
 export interface SectionConfig {

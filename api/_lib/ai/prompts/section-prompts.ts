@@ -22,71 +22,75 @@ export function generateSectionPrompt(
   additionalContext?: string,
   repoUrl?: string
 ): string {
-  const safeProjectName = typeof projectName === 'string' && projectName.trim() 
-    ? projectName 
-    : 'Project';
-  const safeContext = typeof additionalContext === 'string' 
-    ? additionalContext 
-    : '';
+  const safeProjectName = typeof projectName === 'string' && projectName.trim() ? projectName : 'Project';
+  const isPython = stack.language?.toLowerCase() === 'python';
+  const pkgMgr = stack.packageManager || 'npm';
+  
+  // Dynamic Commands based on language
+  const installCmd = isPython ? 'pip install -r requirements.txt' : `${pkgMgr} install`;
+  const devCmd = isPython ? 'python app.py  # or python run.py' : `${pkgMgr === 'npm' ? 'npm run dev' : pkgMgr + ' dev'}`;
+  const testCmd = isPython ? 'python -m pytest' : `${pkgMgr === 'npm' ? 'npm test' : pkgMgr + ' test'}`;
+  const buildCmd = isPython ? '# No build step required for Python' : `${pkgMgr === 'npm' ? 'npm run build' : pkgMgr + ' build'}`;
 
   const githubInfo = extractGitHubInfo(repoUrl);
-  
   const badgeMarkdown = githubInfo 
-    ? `![License](https://img.shields.io/github/license/${githubInfo.owner}/${githubInfo.repo})
-![Stars](https://img.shields.io/github/stars/${githubInfo.owner}/${githubInfo.repo}?style=social)
-![Issues](https://img.shields.io/github/issues/${githubInfo.owner}/${githubInfo.repo})`
+    ? `![License](https://img.shields.io/github/license/${githubInfo.owner}/${githubInfo.repo})\n![Stars](https://img.shields.io/github/stars/${githubInfo.owner}/${githubInfo.repo}?style=social)\n![Issues](https://img.shields.io/github/issues/${githubInfo.owner}/${githubInfo.repo})`
     : `![License](https://img.shields.io/badge/license-MIT-blue.svg)`;
 
-  const basePrompt = `You are a technical writer creating a README section.
+  // Build Context Hydration String
+  let contextFilesStr = '';
+  if (stack.contextFiles && stack.contextFiles.length > 0) {
+    contextFilesStr = `\n=== CRITICAL SOURCE CODE CONTEXT ===\nYou MUST base your answer strictly on the following minified repository files. Use these to identify the exact database schemas, core business logic, and actual dependencies:\n\n`;
+    stack.contextFiles.forEach(file => {
+      contextFilesStr += `--- START ${file.name} ---\n${file.content}\n--- END ${file.name} ---\n\n`;
+    });
+  }
 
-=== RULES ===
-1. ONLY describe features that actually exist in the code
-2. DO NOT invent features like "commenting", "user profiles", "blog posting"
-3. Look at actual dependencies and scripts to determine functionality
-4. Use package.json description if available
-5. Under 250 words, clean markdown only
+  const basePrompt = `You are an elite Technical Writer and Senior Developer documenting a software project.
 
-=== PROJECT DATA ===
-${safeContext || `Project: ${safeProjectName}, Stack: ${stack.primary}`}
+=== RULES OF ENGAGEMENT ===
+1. ZERO HALLUCINATIONS: Do NOT invent features, endpoints, or scripts. If it is not in the source code context, do not mention it.
+2. BE SPECIFIC: Say "SQLAlchemy database with User and Restaurant models" instead of "Provides database modeling."
+3. TONE: Professional, concise, and developer-focused. No fluff.
+4. FORMATTING: Output pure Markdown. Do not wrap your response in \`\`\`markdown blocks.
 
-TASK: Generate the "${section.name}" section for ${safeProjectName}.
+=== PROJECT METADATA ===
+Project Name: ${safeProjectName}
+Primary Framework: ${stack.primary || 'Unknown'}
+Language: ${stack.language || 'Unknown'}
+${contextFilesStr}
+
+TASK: Generate ONLY the "${section.name}" section for ${safeProjectName}. Do not generate the rest of the README.
 `;
 
-  const dockerName = safeProjectName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
   const sectionInstructions: Record<string, string> = {
-    header: `# ${safeProjectName}
-
+    header: `Include the project title as an H1 heading.
+Include these badges directly below the title:
 ${badgeMarkdown}
 
-Write a clear 1-2 sentence description based on the actual project data above.
-If it has AI dependencies + generate/analyze APIs, it's a documentation/README generator.
+Analyze the provided source code context to write a highly specific 2-3 sentence overview of what this exact application does, who it is for, and its primary technical mechanism.
 
-## Quick Start
+Add a "## Quick Start" heading with this code block:
 \`\`\`bash
-${stack.packageManager === 'npm' ? 'npm install && npm run dev' : 
-  stack.packageManager === 'yarn' ? 'yarn && yarn dev' : 'pnpm install && pnpm dev'}
+${installCmd}
+${devCmd}
 \`\`\`
 
-## ✨ Highlights
-- List 3-4 highlights based on ACTUAL dependencies only`,
+Add a "## ✨ Highlights" heading with 3 bullet points highlighting the most complex or valuable technical features proven by the code.`,
 
-    features: `## ✨ Features
+    features: `## ✨ Core Features
 
-List features based on ACTUAL dependencies only:
-
-Format each as:
-- **Feature Name** - Brief description
-
-DO NOT invent features. Only include what's proven by dependencies/code.`,
+Extract the main features DIRECTLY from the provided source code context. Look at models, schemas, and routes.
+Format as a bulleted list with bold feature names and a brief description.
+Example: "- **Role-Based Auth** - Supports Customers, Owners, and Admins."`,
 
     installation: `## 🚀 Installation
 
 ### Prerequisites
-- Node.js v18+
-- ${stack.packageManager}
+- ${isPython ? 'Python 3.8+' : 'Node.js v18+'}
+- ${isPython ? 'pip' : pkgMgr}
 
-### Steps
+### Setup Instructions
 
 1. **Clone the repository**
 \`\`\`bash
@@ -96,84 +100,46 @@ cd ${safeProjectName}
 
 2. **Install dependencies**
 \`\`\`bash
-${stack.packageManager === 'npm' ? 'npm install' : stack.packageManager === 'yarn' ? 'yarn' : 'pnpm install'}
+${installCmd}
 \`\`\`
 
-3. **Set up environment**
+3. **Run the application**
 \`\`\`bash
-cp .env.example .env
-\`\`\`
-
-4. **Start development**
-\`\`\`bash
-${stack.packageManager === 'npm' ? 'npm run dev' : stack.packageManager === 'yarn' ? 'yarn dev' : 'pnpm dev'}
+${devCmd}
 \`\`\``,
 
     'tech-stack': `## 🛠️ Tech Stack
 
-| Category | Technology |
-|----------|------------|
-| Framework | ${stack.primary} |
-| Language | ${stack.language} |
+Analyze the provided source code context (e.g., package.json, requirements.txt) and list the ACTUAL frameworks, databases, and libraries used. Format as a clean Markdown table.`,
 
-Add only technologies from actual dependencies.`,
+    environment: `## ⚙️ Environment Configuration
 
-    environment: `## ⚙️ Environment Variables
+If an \`.env.example\` or configuration file is present in the context, document the required environment variables in a markdown table (Variable, Description, Required). If no specific variables are found, state that standard environment configuration is required.`,
 
-Create a \`.env\` file based on \`.env.example\`:
+    scripts: `## 📜 Available Commands
 
-\`\`\`env
-# Add variables from .env.example if provided in context
-# Otherwise, list based on dependencies
-\`\`\`
-
-| Variable | Description | Required |
-|----------|-------------|----------|`,
-
-    scripts: `## 📜 Available Scripts
-
-| Command | Description |
-|---------|-------------|
-
-List only scripts that exist in package.json.`,
+Document the scripts or commands used to run, build, or seed this project based on the provided context files.
+For example: \`${installCmd}\` and \`${devCmd}\`.`,
 
     deployment: `## 🚀 Deployment
 
 ### Build
 \`\`\`bash
-${stack.packageManager === 'npm' ? 'npm run build' : stack.packageManager === 'yarn' ? 'yarn build' : 'pnpm build'}
+${buildCmd}
 \`\`\`
 
-${stack.primary === 'nextjs' ? `### Vercel (Recommended)
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)` : ''}
-
-${stack.hasDocker ? `### Docker
-\`\`\`bash
-docker build -t ${dockerName} .
-docker run -p 3000:3000 ${dockerName}
-\`\`\`` : ''}`,
-
-    contributing: `## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch: \`git checkout -b feature/your-feature\`
-3. Commit changes: \`git commit -m 'Add feature'\`
-4. Push: \`git push origin feature/your-feature\`
-5. Open Pull Request`,
-
-    license: `## 📄 License
-
-MIT License - see [LICENSE](LICENSE) for details.`,
+${stack.hasDocker ? `### Docker\n\`\`\`bash\ndocker build -t ${safeProjectName.toLowerCase()} .\ndocker run -p 3000:3000 ${safeProjectName.toLowerCase()}\n\`\`\`` : 'Document standard deployment practices for this framework.'}`,
 
     testing: `## 🧪 Testing
 
 \`\`\`bash
-${stack.packageManager === 'npm' ? 'npm test' : stack.packageManager === 'yarn' ? 'yarn test' : 'pnpm test'}
-\`\`\``,
+${testCmd}
+\`\`\`
+If test files exist in the context, briefly mention what is being tested.`,
 
     'api-docs': `## 📚 API Reference
 
-Document actual API routes from the project.`,
+If API routes or controllers are present in the context, document the main endpoints, their methods, and purpose. If none exist, state that this is not an API-driven application.`,
   };
 
   return basePrompt + '\n\n' + (sectionInstructions[section.id] || section.howToWrite);
