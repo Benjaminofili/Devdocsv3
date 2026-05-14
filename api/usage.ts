@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { redis } from './lib/redis';
-import { getGenerationLimit } from '../src/lib/tiers/config';
-import type { UserTier } from '../src/types';
-import { withSentry } from '../src/lib/withSentry';
+import { redis } from './lib/redis.js';
+import { getGenerationLimit } from './_lib/tiers-config.js';
+import type { UserTier } from './_lib/types.js';
+import { withSentry } from './_lib/withSentry.js';
 
 async function handler(
   request: VercelRequest,

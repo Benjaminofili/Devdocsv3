@@ -1,13 +1,13 @@
 // api/analyze.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { StackAnalyzer } from '../src/lib/analyzers';
-import { getSectionsForStack } from '../src/lib/bricks';
-import { redis, checkRateLimit } from './lib/redis';
-import { AnalyzeRequestSchema } from '../src/lib/validators/schemas';
-import { logger } from '../src/lib/logger';
-import { getEnv } from '../src/lib/env';
-import { GITHUB_CONFIG } from '../src/config/constants';
-import { withSentry } from '../src/lib/withSentry';
+import { StackAnalyzer } from '../src/lib/analyzers/index.js';
+import { getSectionsForStack } from '../src/lib/bricks/index.js';
+import { redis, checkRateLimit } from './lib/redis.js';
+import { AnalyzeRequestSchema } from '../src/lib/validators/schemas.js';
+import { logger } from '../src/lib/logger.js';
+import { getEnv } from '../src/lib/env.js';
+import { GITHUB_CONFIG } from './_lib/constants.js';
+import { withSentry } from './_lib/withSentry.js';
 
 interface FileContent {
   name: string;

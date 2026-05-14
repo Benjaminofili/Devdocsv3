@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
-import { withSentry } from '../../src/lib/withSentry';
+import { withSentry } from '../_lib/withSentry.js';
 
 // Bulletproof Firebase Initialization
 if (!admin.apps.length) {

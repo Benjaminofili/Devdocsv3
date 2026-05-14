@@ -1,17 +1,17 @@
 // api/generate.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { checkRateLimit, redis } from './lib/redis';
-import { SECTION_BRICKS } from '../src/lib/bricks';
-import { generateSectionPrompt } from '../src/lib/ai/prompts/section-prompts';
-import { aiOrchestrator } from '../src/lib/ai/orchestrator';
-import { logger } from '../src/lib/logger';
-import { GenerateRequestSchema } from '../src/lib/validators/schemas';
-import { isCacheValid, isContentCacheable } from '../src/lib/validators/cache';
-import { CACHE_CONFIG, API_MESSAGES } from '../src/config/constants';
+import { checkRateLimit, redis } from './lib/redis.js';
+import { SECTION_BRICKS } from '../src/lib/bricks/index.js';
+import { generateSectionPrompt } from '../src/lib/ai/prompts/section-prompts.js';
+import { aiOrchestrator } from '../src/lib/ai/orchestrator.js';
+import { logger } from '../src/lib/logger.js';
+import { GenerateRequestSchema } from '../src/lib/validators/schemas.js';
+import { isCacheValid, isContentCacheable } from '../src/lib/validators/cache.js';
+import { CACHE_CONFIG, API_MESSAGES } from './_lib/constants.js';
 import { ZodError } from 'zod';
-import { getGenerationLimit } from '../src/lib/tiers/config-server';
-import { isSectionAvailable, getSectionTierRequirement } from '../src/lib/tiers/feature-flags';
-import type { UserTier, DetectedStack } from '../src/types';
+import { getGenerationLimit } from './_lib/tiers-config.js';
+import { isSectionAvailable, getSectionTierRequirement } from '../src/lib/tiers/feature-flags.js';
+import type { UserTier, DetectedStack } from './_lib/types.js';
 
 interface RepoData {
   files: Array<{ name: string; content: string }>;
@@ -53,7 +53,7 @@ async function checkUsageLimitRedis(identifier: string, tier: UserTier): Promise
   return { allowed: current <= limit, remaining, limit };
 }
 
-import { withSentry } from '../src/lib/withSentry';
+import { withSentry } from './_lib/withSentry.js';
 
 async function handler(
   request: VercelRequest,
