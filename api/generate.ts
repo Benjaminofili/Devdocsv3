@@ -1,16 +1,16 @@
 // api/generate.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { checkRateLimit, redis } from './lib/redis.js';
-import { SECTION_BRICKS } from '../src/lib/bricks/index.js';
-import { generateSectionPrompt } from '../src/lib/ai/prompts/section-prompts.js';
-import { aiOrchestrator } from '../src/lib/ai/orchestrator.js';
-import { logger } from '../src/lib/logger.js';
-import { GenerateRequestSchema } from '../src/lib/validators/schemas.js';
-import { isCacheValid, isContentCacheable } from '../src/lib/validators/cache.js';
+import { SECTION_BRICKS } from './_lib/bricks/index.js';
+import { generateSectionPrompt } from './_lib/ai/prompts/section-prompts.js';
+import { aiOrchestrator } from './_lib/ai/orchestrator.js';
+import { logger } from './_lib/logger.js';
+import { GenerateRequestSchema } from './_lib/validators/schemas.js';
+import { isCacheValid, isContentCacheable } from './_lib/validators/cache.js';
 import { CACHE_CONFIG, API_MESSAGES } from './_lib/constants.js';
 import { ZodError } from 'zod';
 import { getGenerationLimit } from './_lib/tiers-config.js';
-import { isSectionAvailable, getSectionTierRequirement } from '../src/lib/tiers/feature-flags.js';
+import { isSectionAvailable, getSectionTierRequirement } from './_lib/feature-flags.js';
 import type { UserTier, DetectedStack } from './_lib/types.js';
 
 interface RepoData {
