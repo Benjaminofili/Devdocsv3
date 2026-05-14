@@ -2,7 +2,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { StackAnalyzer } from '../src/lib/analyzers';
 import { getSectionsForStack } from '../src/lib/bricks';
-import { redis } from '../src/lib/rate-limit';
+import { redis, checkRateLimit } from './lib/redis';
 import { AnalyzeRequestSchema } from '../src/lib/validators/schemas';
 import { logger } from '../src/lib/logger';
 import { getEnv } from '../src/lib/env';
@@ -31,6 +31,18 @@ async function handler(
 ) {
   if (request.method !== 'POST') {
     return response.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Rate limiting
+  const ip = (request.headers['x-forwarded-for'] as string) || 'anonymous';
+  const rateLimitResult = await checkRateLimit(ip);
+
+  if (!rateLimitResult.allowed) {
+    return response.status(429).json({
+      success: false,
+      error: 'Rate limit exceeded. Please try again later.',
+      resetAt: rateLimitResult.resetAt,
+    });
   }
 
   try {

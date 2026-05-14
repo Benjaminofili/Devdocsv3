@@ -2,7 +2,6 @@
 import { create } from 'zustand';
 import { auth, loginWithGitHub, logout as firebaseLogout, mapFirebaseUser } from '../../lib/firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
-import { getCurrentUsage } from '../../lib/tiers/usage';
 
 export type UserTier = 'anonymous' | 'free' | 'premium';
 
@@ -79,8 +78,16 @@ export const useApp = create<AppState>((set, get) => ({
   refreshUsage: async () => {
     const { user, sessionId, tier } = get();
     try {
-      const usage = await getCurrentUsage(user?.id || null, sessionId, tier);
-      set({ usage });
+      const params = new URLSearchParams({
+        sessionId,
+        tier,
+        ...(user?.id ? { userId: user.id } : {}),
+      });
+      const res = await fetch(`/api/usage?${params.toString()}`);
+      if (res.ok) {
+        const usage = await res.json();
+        set({ usage });
+      }
     } catch (error) {
       console.warn('Failed to refresh usage:', error);
     }

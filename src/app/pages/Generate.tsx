@@ -379,7 +379,11 @@ function Step1({ onNext }: { onNext: (data: any) => void }) {
       if (data.success) {
         onNext(data.data);
       } else {
-        setError(data.error || 'Failed to analyze repository');
+        if (res.status === 429) {
+          setError('Too many requests. Please try again in a few minutes.');
+        } else {
+          setError(data.error || 'Failed to analyze repository');
+        }
       }
     } catch (err) {
       console.error('Analysis failed:', err);
@@ -769,6 +773,9 @@ function Step4({
             generatedResults.push(result);
             setSections(prev => prev.map((s, idx) => idx === i ? result : s));
           } else {
+            if (res.status === 429) {
+              throw new Error('Usage limit reached or rate limited. Please try again later.');
+            }
             throw new Error(data.error || 'Generation failed');
           }
         } catch (err) {

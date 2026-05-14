@@ -19,10 +19,6 @@ export const getEnv = () => {
     // @ts-ignore
     GROQ_API_KEY: isNode ? getSrv('GROQ_API_KEY') : import.meta.env.VITE_GROQ_API_KEY,
     // @ts-ignore
-    UPSTASH_REDIS_REST_URL: isNode ? getSrv('UPSTASH_REDIS_REST_URL') : import.meta.env.VITE_UPSTASH_REDIS_REST_URL,
-    // @ts-ignore
-    UPSTASH_REDIS_REST_TOKEN: isNode ? getSrv('UPSTASH_REDIS_REST_TOKEN') : import.meta.env.VITE_UPSTASH_REDIS_REST_TOKEN,
-    // @ts-ignore
     GITHUB_TOKEN: isNode ? getSrv('GITHUB_TOKEN') : import.meta.env.VITE_GITHUB_TOKEN,
     // @ts-ignore
     FIREBASE_API_KEY: isNode ? getSrv('FIREBASE_API_KEY') : import.meta.env.VITE_FIREBASE_API_KEY,

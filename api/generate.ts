@@ -1,6 +1,6 @@
 // api/generate.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { checkRateLimit, redis } from '../src/lib/rate-limit';
+import { checkRateLimit, redis } from './lib/redis';
 import { SECTION_BRICKS } from '../src/lib/bricks';
 import { generateSectionPrompt } from '../src/lib/ai/prompts/section-prompts';
 import { aiOrchestrator } from '../src/lib/ai/orchestrator';
