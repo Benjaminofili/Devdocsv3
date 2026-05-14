@@ -12,6 +12,23 @@ import { ZodError } from 'zod';
 import { getGenerationLimit } from './_lib/tiers-config.js';
 import { isSectionAvailable, getSectionTierRequirement } from './_lib/feature-flags.js';
 import type { UserTier, DetectedStack } from './_lib/types.js';
+import admin from 'firebase-admin';
+
+if (!admin.apps.length) {
+  try {
+    const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!serviceAccountVar) {
+      throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable");
+    }
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(serviceAccountVar)),
+    });
+  } catch (error) {
+    console.error('[FIREBASE INIT ERROR IN GENERATE]', error);
+  }
+}
+
+const db = admin.apps.length ? admin.firestore() : null;
 
 interface RepoData {
   files: Array<{ name: string; content: string }>;
@@ -120,24 +137,22 @@ async function handler(
       });
     }
 
-    // Usage limit check (Redis-only, no Firestore)
-    const usageIdentifier = userId || sessionId;
-    let usageAllowed = true;
-    let usageRemaining = 999;
-    let usageLimit = getGenerationLimit(tier);
+    // Usage limit check (Firestore-backed)
+    const identifier = userId || sessionId;
+    const limit = getGenerationLimit(tier);
+    let currentUsage = 0;
 
-    if (isFirstSection) {
-      const usageCheck = await checkUsageLimitRedis(usageIdentifier, tier);
-      usageAllowed = usageCheck.allowed;
-      usageRemaining = usageCheck.remaining;
-      usageLimit = usageCheck.limit;
+    if (isFirstSection && db && identifier) {
+      const today = new Date().toISOString().split('T')[0];
+      const usageDoc = await db.collection('usage').doc(`${identifier}_${today}`).get();
+      currentUsage = usageDoc.data()?.count || 0;
 
-      if (!usageAllowed) {
+      if (limit !== Infinity && currentUsage >= limit) {
         return response.status(429).json({
           success: false,
           error: 'usage_limit',
           message: `Usage limit reached for ${tier} tier`,
-          usage: { used: usageLimit, limit: usageLimit, remaining: 0, tier, resetAt: null },
+          usage: { used: currentUsage, limit: limit, remaining: 0, tier, resetAt: null },
         });
       }
     }
@@ -167,7 +182,7 @@ async function handler(
         data: cached,
         cached: true,
         tier,
-        usage: { remaining: usageRemaining, limit: usageLimit, resetAt: null },
+        usage: { remaining: Math.max(0, limit - currentUsage), limit, resetAt: null },
       });
     }
 
@@ -179,6 +194,24 @@ async function handler(
       explanation: section.whyImportant,
       provider: aiResponse.provider,
     };
+
+    // Increment usage in Firestore on success
+    if (db && identifier) {
+      const today = new Date().toISOString().split('T')[0];
+      const usageRef = db.collection('usage').doc(`${identifier}_${today}`);
+      await usageRef.set({
+        count: admin.firestore.FieldValue.increment(1),
+        lastUsed: admin.firestore.FieldValue.serverTimestamp(),
+        tier
+      }, { merge: true });
+
+      if (userId) {
+        await db.collection('users').doc(userId).set({
+          totalGenerations: admin.firestore.FieldValue.increment(1),
+          lastGenerationAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
+    }
 
     // Cache valid response
     if (isContentCacheable(aiResponse.content)) {
@@ -192,7 +225,7 @@ async function handler(
       data: result,
       cached: false,
       tier,
-      usage: { remaining: usageRemaining, limit: usageLimit, resetAt: null },
+      usage: { remaining: Math.max(0, limit - (currentUsage + 1)), limit, resetAt: null },
     });
 
   } catch (error) {

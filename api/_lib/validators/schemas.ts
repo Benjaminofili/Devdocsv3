@@ -52,10 +52,18 @@ export const GenerateRequestSchema = z.object({
   sectionId: z.string().min(1, 'Section ID is required'),
   stack: DetectedStackSchema,
   projectName: z.string().min(1, 'Project name is required'),
-  repoUrl: z.string().url().optional().or(z.literal('')),
+  repoUrl: z.string().optional(),
   repoData: RepoDataSchema.optional(),
   isFirstSection: z.boolean().optional(),
   bypassCache: z.boolean().optional().default(false),
+});
+
+// Save README Schema
+export const SaveReadmeSchema = z.object({
+  repoUrl: z.string(),
+  projectName: z.string(),
+  content: z.string(),
+  stack: z.any().optional(),
 });
 
 // Analyze Request Schema

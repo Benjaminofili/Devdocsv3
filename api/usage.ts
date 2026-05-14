@@ -1,8 +1,24 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { redis } from './lib/redis.js';
+import admin from 'firebase-admin';
 import { getGenerationLimit } from './_lib/tiers-config.js';
 import type { UserTier } from './_lib/types.js';
 import { withSentry } from './_lib/withSentry.js';
+
+if (!admin.apps.length) {
+  try {
+    const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!serviceAccountVar) {
+      throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable");
+    }
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(serviceAccountVar)),
+    });
+  } catch (error) {
+    console.error('[FIREBASE INIT ERROR IN USAGE]', error);
+  }
+}
+
+const db = admin.apps.length ? admin.firestore() : null;
 
 async function handler(
   request: VercelRequest,
@@ -20,13 +36,16 @@ async function handler(
     return response.status(400).json({ error: 'Missing identifier' });
   }
 
-  const identifier = userId ?? `anon:${sessionId}`;
+  const identifier = userId ?? sessionId; // Clean identifier
   const today = new Date().toISOString().split('T')[0];
-  const key = `usage:daily:${identifier}:${today}`;
   const limit = getGenerationLimit(tier);
 
   try {
-    const currentCount = (await redis.get<number>(key)) ?? 0;
+    let currentCount = 0;
+    if (db) {
+      const usageDoc = await db.collection('usage').doc(`${identifier}_${today}`).get();
+      currentCount = usageDoc.data()?.count || 0;
+    }
 
     const tomorrow = new Date();
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -40,6 +59,7 @@ async function handler(
       resetAt: tomorrow.toISOString(),
     });
   } catch (error) {
+    console.error('[API/USAGE ERROR]', error);
     return response.status(500).json({ error: 'Failed to fetch usage' });
   }
 }

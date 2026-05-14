@@ -868,8 +868,10 @@ function Step4({
 }
 
 // ─── Step 5: Preview & Edit ──────────────────────────────────────────────────
-function Step5({ sections, onBack, onRestart }: {
+function Step5({ sections, repoUrl, stack, onBack, onRestart }: {
   sections: GeneratedSection[];
+  repoUrl: string;
+  stack: any;
   onBack: () => void;
   onRestart: () => void;
 }) {
@@ -904,16 +906,37 @@ function Step5({ sections, onBack, onRestart }: {
     if (!isLoggedIn || !user) return;
     setSaving(true);
     try {
-      const { saveReadme } = await import('../../lib/firebase/saved-readmes');
-      await saveReadme(user.id, {
-        projectName: sections[0]?.id || 'README',
-        content: fullContent,
-        repoUrl: '', // Could be passed down
+      const { auth } = await import('../../lib/firebase/config');
+      const token = await auth.currentUser?.getIdToken();
+
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+
+      const res = await fetch('/api/readmes/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          repoUrl,
+          projectName: sections[0]?.projectName || 'README', // Fallback or extracted name
+          content: fullContent,
+          stack
+        })
       });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to save README');
+      }
+
       setSaved(true);
       toast.success('README saved to dashboard!');
     } catch (err) {
-      toast.error('Failed to save README');
+      console.error('[SAVE ERROR]', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to save README');
     } finally {
       setSaving(false);
     }
@@ -1182,6 +1205,8 @@ export function Generate() {
             <motion.div key="step5" variants={stepVariants} initial="initial" animate="animate" exit="exit">
               <Step5
                 sections={generatedSections}
+                repoUrl={repoUrl}
+                stack={analysisResult?.stack}
                 onBack={() => setStep(3)}
                 onRestart={() => { setIsRegenerating(true); setStep(4); setGeneratedSections([]); }}
               />
