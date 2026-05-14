@@ -8,6 +8,23 @@ import { logger } from './_lib/logger.js';
 import { getEnv } from './_lib/env.js';
 import { GITHUB_CONFIG } from './_lib/constants.js';
 import { withSentry } from './_lib/withSentry.js';
+import admin from 'firebase-admin';
+
+if (!admin.apps.length) {
+  try {
+    const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (serviceAccountVar) {
+      admin.initializeApp({
+        credential: admin.credential.cert(JSON.parse(serviceAccountVar)),
+      });
+    }
+  } catch (error) {
+    console.error('[FIREBASE INIT ERROR] analyze.ts:', error);
+  }
+}
+
+const db = admin.apps.length ? admin.firestore() : null;
+const auth = admin.apps.length ? admin.auth() : null;
 
 interface FileContent {
   name: string;
@@ -53,6 +70,19 @@ async function handler(
     }
 
     const { repoUrl, files } = parseResult.data;
+    let githubToken = (request.body as any).githubToken;
+
+    // Fallback: Fetch token from Firestore if we have a Firebase session
+    if (!githubToken && request.headers.authorization?.startsWith('Bearer ') && db && auth) {
+      try {
+        const idToken = request.headers.authorization.split(' ')[1];
+        const decodedToken = await auth.verifyIdToken(idToken);
+        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+        githubToken = userDoc.data()?.githubToken;
+      } catch (e) {
+        logger.warn('Failed to verify token for GitHub fallback');
+      }
+    }
 
     let cacheKey = '';
     if (repoUrl) {
@@ -67,7 +97,7 @@ async function handler(
     let fileContents: FileContent[] = [];
 
     if (repoUrl) {
-      fileContents = await fetchRepoContents(repoUrl);
+      fileContents = await fetchRepoContents(repoUrl, githubToken);
     } else if (files) {
       fileContents = files;
     }
@@ -145,34 +175,33 @@ async function handler(
 export default withSentry(handler);
 
 
-async function fetchRepoContents(repoUrl: string): Promise<FileContent[]> {
+async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise<FileContent[]> {
   const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (!match) throw new Error('Invalid GitHub URL');
 
   const [, owner, repo] = match;
   const cleanRepo = repo.replace('.git', '');
 
-  const headers = {
-    Accept: 'application/vnd.github.v3+json',
-    'User-Agent': GITHUB_CONFIG.USER_AGENT,
-    Authorization: '',
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3+json',
+    'User-Agent': GITHUB_CONFIG.USER_AGENT || 'DevDocs-V3'
   };
 
-  const env = getEnv();
-  if (env.GITHUB_TOKEN) {
-    headers.Authorization = `token ${env.GITHUB_TOKEN}`;
-  } else {
-    delete (headers as any).Authorization;
+  // Only attach the token if it is a truthy string and not "undefined"/"null"
+  const envToken = getEnv().GITHUB_TOKEN;
+  const activeToken = githubToken || envToken;
+
+  if (activeToken && activeToken !== 'undefined' && activeToken !== 'null') {
+    headers['Authorization'] = `token ${activeToken}`;
   }
 
   const fileContents: FileContent[] = [];
+  const url = `https://api.github.com/repos/${owner}/${cleanRepo}/contents`;
 
-  const rootResponse = await fetch(
-    `https://api.github.com/repos/${owner}/${cleanRepo}/contents`,
-    { headers }
-  );
+  const rootResponse = await fetch(url, { headers });
 
   if (!rootResponse.ok) {
+    console.error(`[GITHUB FETCH ERROR] ${rootResponse.status} for URL: ${url}`);
     throw new Error(`Failed to fetch repository: ${rootResponse.status} ${rootResponse.statusText}`);
   }
 
