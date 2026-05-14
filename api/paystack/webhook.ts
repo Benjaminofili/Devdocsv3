@@ -7,16 +7,16 @@ if (!admin.apps.length) {
   try {
     const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
-    let privateKey = process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY;
+    
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY_BASE64 
+      ? Buffer.from(process.env.FIREBASE_PRIVATE_KEY_BASE64, 'base64').toString('utf8')
+      : (process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY);
 
     if (privateKey) {
-      // 1. Remove any stray wrapping quotes that Vercel might have added
+      // Remove any literal quotes Vercel might have wrapped around the string
       privateKey = privateKey.replace(/^['"]|['"]$/g, '');
-      
-      // 2. Fix escaped newlines (only if they exist as literal text)
-      if (privateKey.includes('\\n')) {
-        privateKey = privateKey.replace(/\\n/g, '\n');
-      }
+      // Fix both escaped backslash-n and actual literal newlines
+      privateKey = privateKey.replace(/\\n/g, '\n');
     }
 
     if (!projectId || !clientEmail || !privateKey) {

@@ -6,7 +6,10 @@ import { withSentry } from '../_lib/withSentry.js';
 if (!admin.apps.length) {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
-  let privateKey = process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY;
+  
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY_BASE64 
+    ? Buffer.from(process.env.FIREBASE_PRIVATE_KEY_BASE64, 'base64').toString('utf8')
+    : (process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY);
 
   if (privateKey) {
     // Remove any literal quotes Vercel might have wrapped around the string

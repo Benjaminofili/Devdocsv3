@@ -7,4 +7,12 @@ export interface DetectedStack {
   auth?: string;
   styling?: string;
   tools?: string[];
+  primary?: string;
+  secondary?: string;
+  packageManager?: string;
+  hasDocker?: boolean;
+  hasTesting?: boolean;
+  hasCI?: boolean;
+  domainHints?: string[];
+  version?: string;
 }
