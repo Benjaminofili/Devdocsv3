@@ -2,36 +2,28 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
 import { withSentry } from '../_lib/withSentry.js';
 
-// Super-Bulletproof Firebase Initialization
 if (!admin.apps.length) {
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
-  
-  let privateKey = process.env.FIREBASE_PRIVATE_KEY_BASE64 
-    ? Buffer.from(process.env.FIREBASE_PRIVATE_KEY_BASE64, 'base64').toString('utf8')
-    : (process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY);
+  try {
+    const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-  if (privateKey) {
-    // Remove any literal quotes Vercel might have wrapped around the string
-    privateKey = privateKey.replace(/^['"]|['"]$/g, '');
-    // Fix both escaped backslash-n and actual literal newlines
-    privateKey = privateKey.replace(/\\n/g, '\n');
+    if (!serviceAccountVar) {
+      throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable");
+    }
+
+    // JSON.parse handles the private key formatting automatically
+    const serviceAccount = JSON.parse(serviceAccountVar);
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    
+    console.log('[FIREBASE] Successfully initialized via JSON string');
+  } catch (error) {
+    console.error('[FIREBASE INIT ERROR]', error);
+    throw error;
   }
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(`Missing Firebase Env: ${!projectId ? 'ID ' : ''}${!clientEmail ? 'Email ' : ''}${!privateKey ? 'Key' : ''}`);
-  }
-
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
-  });
 }
 
-// 2. Access services safely
 const db = admin.firestore();
 const auth = admin.auth();
 

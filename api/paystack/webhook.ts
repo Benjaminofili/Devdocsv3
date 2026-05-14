@@ -5,32 +5,19 @@ import admin from 'firebase-admin';
 // Bulletproof Firebase Initialization
 if (!admin.apps.length) {
   try {
-    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
-    
-    let privateKey = process.env.FIREBASE_PRIVATE_KEY_BASE64 
-      ? Buffer.from(process.env.FIREBASE_PRIVATE_KEY_BASE64, 'base64').toString('utf8')
-      : (process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY);
+    const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-    if (privateKey) {
-      // Remove any literal quotes Vercel might have wrapped around the string
-      privateKey = privateKey.replace(/^['"]|['"]$/g, '');
-      // Fix both escaped backslash-n and actual literal newlines
-      privateKey = privateKey.replace(/\\n/g, '\n');
+    if (!serviceAccountVar) {
+      throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable");
     }
 
-    if (!projectId || !clientEmail || !privateKey) {
-      throw new Error("Missing Firebase credentials in webhook");
-    }
+    const serviceAccount = JSON.parse(serviceAccountVar);
 
     admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId,
-        clientEmail,
-        privateKey,
-      }),
+      credential: admin.credential.cert(serviceAccount),
     });
-    console.log('[FIREBASE WEBHOOK] Successfully initialized');
+    
+    console.log('[FIREBASE WEBHOOK] Successfully initialized via JSON string');
   } catch (error) {
     console.error('[FIREBASE WEBHOOK INIT ERROR]', error);
     throw error;

@@ -41,3 +41,4 @@ firebase-debug.*.log*
 
 .vercel
 .env*.local
+verify_key.cjs
