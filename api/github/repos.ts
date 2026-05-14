@@ -2,18 +2,37 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
 import { withSentry } from '../../src/lib/withSentry';
 
-// Initialize Firebase Admin if not already initialized
+// Bulletproof Firebase Initialization
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  });
+  try {
+    // Check both VITE_ and standard prefixes just in case
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY;
+
+    // Handle Vercel's newline escaping quirks
+    if (privateKey) {
+      // Replaces literal "\n" text with actual line breaks, and removes extra quotes
+      privateKey = privateKey.replace(/\\n/g, '\n').replace(/^"|"$/g, '');
+    }
+
+    if (!projectId || !clientEmail || !privateKey) {
+      console.error('[FIREBASE INIT] Missing critical Firebase environment variables.');
+    } else {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey,
+        }),
+      });
+    }
+  } catch (initError) {
+    console.error('[FIREBASE INIT ERROR]', initError);
+  }
 }
 
-const db = admin.firestore();
+const db = admin.apps.length ? admin.firestore() : null;
 
 async function handler(
   request: VercelRequest,
@@ -49,6 +68,9 @@ async function handler(
     const uid = decodedToken.uid;
 
     // 2. Fetch GitHub token from Firestore
+    if (!db) {
+      throw new Error('Database not initialized. Check Firebase environment variables.');
+    }
     const userDoc = await db.collection('users').doc(uid).get();
     const githubToken = userDoc.data()?.githubToken;
 
