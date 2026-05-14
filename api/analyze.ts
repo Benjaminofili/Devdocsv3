@@ -13,16 +13,21 @@ import admin from 'firebase-admin';
 if (!admin.apps.length) {
   try {
     const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (serviceAccountVar) {
-      admin.initializeApp({
-        credential: admin.credential.cert(JSON.parse(serviceAccountVar)),
-      });
+    if (!serviceAccountVar) {
+      throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable");
     }
+    const serviceAccount = JSON.parse(serviceAccountVar);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    console.log('[FIREBASE] Successfully initialized in analyze.ts');
   } catch (error) {
-    console.error('[FIREBASE INIT ERROR] analyze.ts:', error);
+    console.error('[FIREBASE INIT ERROR IN ANALYZE]', error);
+    // Don't throw here, just log, so public repos can still be analyzed without Firebase
   }
 }
 
+// Safely initialize services
 const db = admin.apps.length ? admin.firestore() : null;
 const auth = admin.apps.length ? admin.auth() : null;
 
@@ -73,14 +78,20 @@ async function handler(
     let githubToken = (request.body as any).githubToken;
 
     // Fallback: Fetch token from Firestore if we have a Firebase session
-    if (!githubToken && request.headers.authorization?.startsWith('Bearer ') && db && auth) {
-      try {
-        const idToken = request.headers.authorization.split(' ')[1];
-        const decodedToken = await auth.verifyIdToken(idToken);
-        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
-        githubToken = userDoc.data()?.githubToken;
-      } catch (e) {
-        logger.warn('Failed to verify token for GitHub fallback');
+    if (!githubToken && auth && db) {
+      const authHeader = request.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        try {
+          const idToken = authHeader.split(' ')[1];
+          const decodedToken = await auth.verifyIdToken(idToken);
+          const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+          githubToken = userDoc.data()?.githubToken;
+          if (githubToken) {
+            logger.info('Successfully retrieved fallback token from Firestore');
+          }
+        } catch (e) {
+          console.error("Failed to fetch fallback token from Firestore:", e);
+        }
       }
     }
 
