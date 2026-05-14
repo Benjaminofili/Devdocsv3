@@ -193,23 +193,33 @@ async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise
   const [, owner, repo] = match;
   const cleanRepo = repo.replace('.git', '');
 
+  // 1. Strict Token Validation
+  const envToken = getEnv().GITHUB_TOKEN;
+  const activeToken = githubToken || envToken;
+  const validToken = (typeof activeToken === 'string' && activeToken.trim().length > 15 && activeToken !== 'undefined' && activeToken !== 'null') 
+    ? activeToken.trim() 
+    : null;
+
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github.v3+json',
     'User-Agent': GITHUB_CONFIG.USER_AGENT || 'DevDocs-V3'
   };
 
-  // Only attach the token if it is a truthy string and not "undefined"/"null"
-  const envToken = getEnv().GITHUB_TOKEN;
-  const activeToken = githubToken || envToken;
-
-  if (activeToken && activeToken !== 'undefined' && activeToken !== 'null') {
-    headers['Authorization'] = `token ${activeToken}`;
+  if (validToken) {
+    headers['Authorization'] = `token ${validToken}`;
   }
 
   const fileContents: FileContent[] = [];
   const url = `https://api.github.com/repos/${owner}/${cleanRepo}/contents`;
 
-  const rootResponse = await fetch(url, { headers });
+  // 2. The Fetch with Auto-Retry for Public Repos
+  let rootResponse = await fetch(url, { headers });
+
+  if (rootResponse.status === 401 && validToken) {
+    console.warn(`[GITHUB FETCH] Token rejected (401). Retrying as unauthenticated request for public fallback...`);
+    delete headers['Authorization'];
+    rootResponse = await fetch(url, { headers });
+  }
 
   if (!rootResponse.ok) {
     console.error(`[GITHUB FETCH ERROR] ${rootResponse.status} for URL: ${url}`);

@@ -42,9 +42,12 @@ export interface DetectedStack {
   primary?: StackType | string;
   secondary?: string | string[];
   packageManager?: string;
+  frameworks?: string[];
+  dependencies?: Record<string, string>;
   hasDocker?: boolean;
   hasTesting?: boolean;
   hasCI?: boolean;
+  hasEnvFile?: boolean;
   domainHints?: string[];
   version?: string;
 }

@@ -31,7 +31,6 @@ const db = admin.apps.length ? admin.firestore() : null;
  * Vercel Serverless Function: Paystack Webhook Handler
  * Endpoint: /api/paystack/webhook
  */
-import { withSentry } from '../_lib/withSentry.js';
 
 async function handler(
   request: VercelRequest,
