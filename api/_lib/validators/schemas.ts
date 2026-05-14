@@ -55,6 +55,7 @@ export const GenerateRequestSchema = z.object({
   repoUrl: z.string().url().optional().or(z.literal('')),
   repoData: RepoDataSchema.optional(),
   isFirstSection: z.boolean().optional(),
+  bypassCache: z.boolean().optional().default(false),
 });
 
 // Analyze Request Schema

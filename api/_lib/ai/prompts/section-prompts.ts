@@ -22,37 +22,47 @@ export function generateSectionPrompt(
   additionalContext?: string,
   repoUrl?: string
 ): string {
-  const safeProjectName = typeof projectName === 'string' && projectName.trim() ? projectName : 'Project';
+  const githubInfo = extractGitHubInfo(repoUrl);
+  
+  // Smart Fallback: If projectName is generic, extract it from the GitHub Repo Name
+  let fallbackName = 'Project';
+  if (githubInfo && githubInfo.repo) {
+    fallbackName = githubInfo.repo.charAt(0).toUpperCase() + githubInfo.repo.slice(1);
+  }
+  const safeProjectName = (typeof projectName === 'string' && projectName.trim() && projectName !== 'Project') 
+    ? projectName 
+    : fallbackName;
+
   const isPython = stack.language?.toLowerCase() === 'python';
   const pkgMgr = stack.packageManager || 'npm';
   
-  // Dynamic Commands based on language
   const installCmd = isPython ? 'pip install -r requirements.txt' : `${pkgMgr} install`;
   const devCmd = isPython ? 'python app.py  # or python run.py' : `${pkgMgr === 'npm' ? 'npm run dev' : pkgMgr + ' dev'}`;
   const testCmd = isPython ? 'python -m pytest' : `${pkgMgr === 'npm' ? 'npm test' : pkgMgr + ' test'}`;
   const buildCmd = isPython ? '# No build step required for Python' : `${pkgMgr === 'npm' ? 'npm run build' : pkgMgr + ' build'}`;
 
-  const githubInfo = extractGitHubInfo(repoUrl);
   const badgeMarkdown = githubInfo 
     ? `![License](https://img.shields.io/github/license/${githubInfo.owner}/${githubInfo.repo})\n![Stars](https://img.shields.io/github/stars/${githubInfo.owner}/${githubInfo.repo}?style=social)\n![Issues](https://img.shields.io/github/issues/${githubInfo.owner}/${githubInfo.repo})`
     : `![License](https://img.shields.io/badge/license-MIT-blue.svg)`;
 
-  // Build Context Hydration String
   let contextFilesStr = '';
   if (stack.contextFiles && stack.contextFiles.length > 0) {
-    contextFilesStr = `\n=== CRITICAL SOURCE CODE CONTEXT ===\nYou MUST base your answer strictly on the following minified repository files. Use these to identify the exact database schemas, core business logic, and actual dependencies:\n\n`;
+    contextFilesStr = `\n=== CRITICAL SOURCE CODE CONTEXT ===\nYou MUST base your answer strictly on the following minified repository files:\n\n`;
     stack.contextFiles.forEach(file => {
       contextFilesStr += `--- START ${file.name} ---\n${file.content}\n--- END ${file.name} ---\n\n`;
     });
   }
 
-  const basePrompt = `You are an elite Technical Writer and Senior Developer documenting a software project.
+  const basePrompt = `You are an elite Technical Writer documenting a software project.
 
 === RULES OF ENGAGEMENT ===
-1. ZERO HALLUCINATIONS: Do NOT invent features, endpoints, or scripts. If it is not in the source code context, do not mention it.
-2. BE SPECIFIC: Say "SQLAlchemy database with User and Restaurant models" instead of "Provides database modeling."
-3. TONE: Professional, concise, and developer-focused. No fluff.
-4. FORMATTING: Output pure Markdown. Do not wrap your response in \`\`\`markdown blocks.
+1. ZERO HALLUCINATIONS: Do not invent features or scripts not present in the context.
+2. BE SPECIFIC: Use exact framework names and technical terms.
+3. TONE: Professional, concise, and developer-focused.
+4. STRICT MARKDOWN FORMATTING: 
+   - You MUST leave a blank empty line before AND after every heading, list, and table.
+   - Do NOT wrap your entire response in \`\`\`markdown blocks.
+5. TABLES: All tables MUST have proper alignment rows (e.g., |---|---|---|) and start/end with pipes.
 
 === PROJECT METADATA ===
 Project Name: ${safeProjectName}
@@ -60,7 +70,7 @@ Primary Framework: ${stack.primary || 'Unknown'}
 Language: ${stack.language || 'Unknown'}
 ${contextFilesStr}
 
-TASK: Generate ONLY the "${section.name}" section for ${safeProjectName}. Do not generate the rest of the README.
+TASK: Generate ONLY the "${section.name}" section for ${safeProjectName}.
 `;
 
   const sectionInstructions: Record<string, string> = {
@@ -110,11 +120,22 @@ ${devCmd}
 
     'tech-stack': `## 🛠️ Tech Stack
 
-Analyze the provided source code context (e.g., package.json, requirements.txt) and list the ACTUAL frameworks, databases, and libraries used. Format as a clean Markdown table.`,
+Analyze the provided source code context and list the ACTUAL frameworks, databases, and libraries used.
+You MUST format it EXACTLY like this markdown table, including the pipes and dashes:
+
+| Category | Technology | Version |
+| :--- | :--- | :--- |
+| Framework | Flask | 3.1.3 |
+| Database | PostgreSQL | 15.0 |`,
 
     environment: `## ⚙️ Environment Configuration
 
-If an \`.env.example\` or configuration file is present in the context, document the required environment variables in a markdown table (Variable, Description, Required). If no specific variables are found, state that standard environment configuration is required.`,
+If an \`.env.example\` or configuration file is present, document the required variables. 
+You MUST format it EXACTLY like this markdown table:
+
+| Variable | Description | Required |
+| :--- | :--- | :--- |
+| DATABASE_URL | Connection string | Yes |`,
 
     scripts: `## 📜 Available Commands
 

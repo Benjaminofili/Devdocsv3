@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import {
@@ -717,6 +718,7 @@ function Step4({
   repoUrl, 
   stack, 
   repoData, 
+  bypassCache = false,
   onDone 
 }: { 
   selectedSections: string[]; 
@@ -724,6 +726,7 @@ function Step4({
   repoUrl: string;
   stack: any;
   repoData: any;
+  bypassCache?: boolean;
   onDone: (sections: GeneratedSection[]) => void 
 }) {
   const { sessionId, user, refreshUsage } = useApp();
@@ -760,6 +763,7 @@ function Step4({
               stack,
               repoData,
               isFirstSection: i === 0,
+              bypassCache,
             }),
           });
 
@@ -989,6 +993,7 @@ function Step5({ sections, onBack, onRestart }: {
               style={{ maxHeight: '600px' }}
             >
               <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
                 components={{
                   h1: ({ children }) => <h1 className="text-zinc-100 text-2xl border-b border-zinc-700 pb-2 mb-4" style={{ fontWeight: 700 }}>{children}</h1>,
                   h2: ({ children }) => <h2 className="text-zinc-100 text-lg mt-6 mb-3" style={{ fontWeight: 600 }}>{children}</h2>,
@@ -1085,6 +1090,7 @@ export function Generate() {
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [generatedSections, setGeneratedSections] = useState<GeneratedSection[]>([]);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   useEffect(() => {
      if (analysisResult?.suggestedSections) {
@@ -1141,7 +1147,7 @@ export function Generate() {
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div key="step1" variants={stepVariants as any} initial="initial" animate="animate" exit="exit">
-              <Step1 onNext={data => { setRepoUrl(prev => repoUrl || prev); setAnalysisResult(data); setStep(2); }} />
+              <Step1 onNext={data => { setRepoUrl(prev => repoUrl || prev); setAnalysisResult(data); setIsRegenerating(false); setStep(2); }} />
             </motion.div>
           )}
           {step === 2 && (
@@ -1167,6 +1173,7 @@ export function Generate() {
                 repoUrl={repoUrl}
                 stack={analysisResult?.stack}
                 repoData={analysisResult?.repoData}
+                bypassCache={isRegenerating}
                 onDone={handleGenerationDone}
               />
             </motion.div>
@@ -1176,7 +1183,7 @@ export function Generate() {
               <Step5
                 sections={generatedSections}
                 onBack={() => setStep(3)}
-                onRestart={() => { setStep(4); setGeneratedSections([]); }}
+                onRestart={() => { setIsRegenerating(true); setStep(4); setGeneratedSections([]); }}
               />
             </motion.div>
           )}

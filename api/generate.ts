@@ -89,7 +89,7 @@ async function handler(
       });
     }
 
-    const { sectionId, projectName, repoUrl, repoData, isFirstSection = true } = parseResult.data;
+    const { sectionId, projectName, repoUrl, repoData, isFirstSection = true, bypassCache = false } = parseResult.data;
 
     // Normalize stack
     const stack: DetectedStack = {
@@ -99,6 +99,9 @@ async function handler(
     };
 
     console.log(`[GENERATE] Received ${stack.contextFiles?.length || 0} context files`);
+    if (bypassCache) {
+      console.log(`[CACHE BYPASS] Forcing fresh generation for section: ${sectionId}`);
+    }
 
     // Determine tier from headers only (no Firestore needed)
     const userId = request.headers['x-user-id'] as string || null;
@@ -156,8 +159,9 @@ async function handler(
     const projectSpecificHash = Buffer.from(`${projectName}:${sectionId}:${stack.primary}:${contextHash}`).toString('base64');
     const cacheKey = `generate:${projectSpecificHash}`;
 
+    // Skip cache return if bypassCache is true
     const cached = await redis.get<CachedResponse>(cacheKey);
-    if (isCacheValid(cached)) {
+    if (isCacheValid(cached) && !bypassCache) {
       return response.status(200).json({
         success: true,
         data: cached,
