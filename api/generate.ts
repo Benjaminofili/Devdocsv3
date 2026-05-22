@@ -120,12 +120,19 @@ async function handler(
       console.log(`[CACHE BYPASS] Forcing fresh generation for section: ${sectionId}`);
     }
 
-    // Determine tier from headers only (no Firestore needed)
+    // Determine tier securely from Firestore if authenticated
     const userId = request.headers['x-user-id'] as string || null;
     const sessionId = request.headers['x-session-id'] as string || 'default-session';
     
-    // Simple tier: authenticated users are 'free', anonymous are 'anonymous'
-    const tier: UserTier = userId ? 'free' : 'anonymous';
+    let tier: UserTier = 'anonymous';
+    if (userId) {
+      if (db) {
+        const userDoc = await db.collection('users').doc(userId).get();
+        tier = (userDoc.data()?.tier as UserTier) || 'free';
+      } else {
+        tier = 'free';
+      }
+    }
 
     // Section availability check
     if (!isSectionAvailable(sectionId, tier)) {
@@ -216,6 +223,21 @@ async function handler(
     // Cache valid response
     if (isContentCacheable(aiResponse.content)) {
       await redis.set(cacheKey, result, { ex: CACHE_CONFIG.GENERATION_TTL_SECONDS });
+    }
+
+    // Log to generation_history in Firestore
+    if (db) {
+      try {
+        await db.collection('generation_history').add({
+          userId,
+          repoUrl: repoUrl || null,
+          projectName: projectName || null,
+          sectionId,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (historyError) {
+        logger.error('Failed to log generation history to Firestore', historyError);
+      }
     }
 
     logger.info('✅ Generated section', { sectionId, provider: aiResponse.provider, ms: Date.now() - startTime });

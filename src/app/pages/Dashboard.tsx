@@ -10,6 +10,7 @@ import { useApp } from '../context/AppContext';
 import { SEOHead } from '../components/SEOHead';
 import { PricingSection } from '../components/PricingSection';
 import { usePaystackCheckout } from '../../hooks/usePaystackCheckout';
+import { auth } from '../../lib/firebase/auth'; // Firebase auth for token
 
 interface SavedReadme {
   id: string;
@@ -21,43 +22,7 @@ interface SavedReadme {
   sections: number;
 }
 
-const MOCK_READMES: SavedReadme[] = [
-  {
-    id: '1',
-    title: 'my-nextjs-app',
-    repo_url: 'https://github.com/alexchen/my-nextjs-app',
-    stack: 'Next.js · TypeScript',
-    content: '# my-nextjs-app\n\nA full-stack web application...',
-    created_at: '2026-03-10T14:23:00Z',
-    sections: 8,
-  },
-  {
-    id: '2',
-    title: 'api-server',
-    repo_url: 'https://github.com/alexchen/api-server',
-    stack: 'Node.js · Express',
-    content: '# api-server\n\nA RESTful API built with Express...',
-    created_at: '2026-03-07T09:12:00Z',
-    sections: 6,
-  },
-  {
-    id: '3',
-    title: 'react-dashboard',
-    repo_url: 'https://github.com/alexchen/react-dashboard',
-    stack: 'React · Vite',
-    content: '# react-dashboard\n\nAn analytics dashboard...',
-    created_at: '2026-02-28T17:45:00Z',
-    sections: 5,
-  },
-];
 
-const MOCK_HISTORY = [
-  { id: 'h1', repo: 'my-nextjs-app', sections: 8, date: '2026-03-10T14:23:00Z', status: 'success' },
-  { id: 'h2', repo: 'api-server', sections: 6, date: '2026-03-07T09:12:00Z', status: 'success' },
-  { id: 'h3', repo: 'react-dashboard', sections: 5, date: '2026-02-28T17:45:00Z', status: 'success' },
-  { id: 'h4', repo: 'ml-pipeline', sections: 3, date: '2026-02-20T11:00:00Z', status: 'error' },
-  { id: 'h5', repo: 'my-nextjs-app', sections: 4, date: '2026-02-15T08:30:00Z', status: 'success' },
-];
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -92,16 +57,21 @@ export function Dashboard() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const { getSavedReadmes } = await import('@/lib/firebase/saved-readmes');
-        const { getGenerationHistory } = await import('@/lib/firebase/usage-history');
-        
-        const [savedData, historyData] = await Promise.all([
-          getSavedReadmes(user.id),
-          getGenerationHistory(user.id)
-        ]);
-        
+        // Fetch saved READMEs
+      const token = await auth.currentUser?.getIdToken();
+      const headers = { Authorization: `Bearer ${token}` };
+      const [readmesRes, historyRes] = await Promise.all([
+        fetch('/api/readmes/get', { headers }),
+        fetch('/api/user/history', { headers })
+      ]);
+      if (readmesRes.ok) {
+        const { readmes: savedData } = await readmesRes.json();
         setReadmes(savedData);
+      }
+      if (historyRes.ok) {
+        const { history: historyData } = await historyRes.json();
         setHistory(historyData);
+      }
       } catch (err) {
         console.error('Dashboard fetch error:', err);
       } finally {
@@ -150,10 +120,19 @@ export function Dashboard() {
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     try {
-      const { deleteSavedReadme } = await import('@/lib/firebase/saved-readmes');
-      await deleteSavedReadme(id);
+      // Delete via serverless endpoint
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch('/api/readmes/delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ docId: id })
+    });
+    if (res.ok) {
       setReadmes(prev => prev.filter(r => r.id !== id));
       toast.success('README deleted');
+    } else {
+      toast.error('Failed to delete README');
+    }
     } catch (err) {
       toast.error('Failed to delete README');
     } finally {

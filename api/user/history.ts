@@ -1,9 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
 import { withSentry } from '../_lib/withSentry.js';
-import { SaveReadmeSchema } from '../_lib/validators/schemas.js';
 
-// Bulletproof Firebase Initialization
 if (!admin.apps.length) {
   try {
     const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -14,9 +12,9 @@ if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
-    console.log('[FIREBASE] Successfully initialized in save.ts');
+    console.log('[FIREBASE] Successfully initialized in history.ts');
   } catch (error) {
-    console.error('[FIREBASE INIT ERROR IN SAVE]', error);
+    console.error('[FIREBASE INIT ERROR IN HISTORY]', error);
     throw error;
   }
 }
@@ -28,7 +26,7 @@ async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
-  if (request.method !== 'POST') {
+  if (request.method !== 'GET') {
     return response.status(405).json({ error: 'Method Not Allowed' });
   }
 
@@ -49,33 +47,33 @@ async function handler(
 
     const uid = decodedToken.uid;
 
-    // 2. Validate request body using Zod schema
-    const parsedData = SaveReadmeSchema.parse(request.body);
+    // 2. Fetch History from Firestore
+    const snapshot = await db.collection('generation_history')
+      .where('userId', '==', uid)
+      .orderBy('timestamp', 'desc')
+      .limit(50)
+      .get();
 
-    const { repoUrl, projectName, sectionId, content, stack } = parsedData;
+    if (snapshot.empty) {
+      return response.status(200).json({ history: [] });
+    }
 
-    // 3. Save to Firestore using validated data
-    const docRef = await db.collection('readmes').add({
-      userId: uid,
-      repoUrl,
-      projectName,
-      sectionId,
-      content,
-      stack: stack || null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    const history = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        timestamp: data.timestamp?.toDate().toISOString() || new Date().toISOString()
+      };
     });
-
-    console.log(`[API/READMES/SAVE] README saved with ID: ${docRef.id} for user: ${uid}`);
 
     return response.status(200).json({
       success: true,
-      id: docRef.id,
-      message: 'README saved to dashboard successfully'
+      history
     });
 
   } catch (error) {
-    console.error('[API/READMES/SAVE ERROR]', error);
+    console.error('[API/USER/HISTORY ERROR]', error);
     return response.status(500).json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

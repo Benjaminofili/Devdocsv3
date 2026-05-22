@@ -3,6 +3,23 @@ import crypto from 'crypto';
 import admin from 'firebase-admin';
 import { withSentry } from '../_lib/withSentry.js';
 
+// Disable Vercel body parsing to retain raw payload
+export const config = { api: { bodyParser: false } };
+
+/**
+ * Helper to read raw request body as string
+ */
+async function getRawBody(req: VercelRequest): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk.toString();
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
 // Bulletproof Firebase Initialization
 if (!admin.apps.length) {
   try {
@@ -43,10 +60,13 @@ async function handler(
   const signature = request.headers['x-paystack-signature'] as string;
   const secret = process.env.PAYSTACK_SECRET_KEY as string;
 
-  // Security: Validate Paystack signature
+  // Read raw request body
+  const rawBody = await getRawBody(request);
+
+  // Security: Validate Paystack signature using raw payload
   const hash = crypto
     .createHmac('sha512', secret)
-    .update(JSON.stringify(request.body))
+    .update(rawBody)
     .digest('hex');
 
   if (hash !== signature) {
@@ -54,7 +74,8 @@ async function handler(
     return response.status(401).json({ error: 'Invalid signature' });
   }
 
-  const event = request.body;
+  // Parse the raw JSON payload
+  const event = JSON.parse(rawBody);
 
   try {
     if (event.event === 'charge.success' || event.event === 'subscription.create') {

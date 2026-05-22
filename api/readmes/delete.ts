@@ -1,9 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
 import { withSentry } from '../_lib/withSentry.js';
-import { SaveReadmeSchema } from '../_lib/validators/schemas.js';
 
-// Bulletproof Firebase Initialization
 if (!admin.apps.length) {
   try {
     const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -14,9 +12,9 @@ if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
-    console.log('[FIREBASE] Successfully initialized in save.ts');
+    console.log('[FIREBASE] Successfully initialized in delete.ts');
   } catch (error) {
-    console.error('[FIREBASE INIT ERROR IN SAVE]', error);
+    console.error('[FIREBASE INIT ERROR IN DELETE]', error);
     throw error;
   }
 }
@@ -28,7 +26,7 @@ async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
-  if (request.method !== 'POST') {
+  if (request.method !== 'DELETE') {
     return response.status(405).json({ error: 'Method Not Allowed' });
   }
 
@@ -49,33 +47,37 @@ async function handler(
 
     const uid = decodedToken.uid;
 
-    // 2. Validate request body using Zod schema
-    const parsedData = SaveReadmeSchema.parse(request.body);
+    // 2. Get docId from query or body
+    const docId = (request.body?.docId || request.query?.docId) as string | undefined;
+    if (!docId) {
+      return response.status(400).json({ error: 'Bad Request: Missing docId' });
+    }
 
-    const { repoUrl, projectName, sectionId, content, stack } = parsedData;
+    // 3. Fetch from Firestore to ensure it belongs to the authenticated user
+    const docRef = db.collection('readmes').doc(docId);
+    const docSnap = await docRef.get();
 
-    // 3. Save to Firestore using validated data
-    const docRef = await db.collection('readmes').add({
-      userId: uid,
-      repoUrl,
-      projectName,
-      sectionId,
-      content,
-      stack: stack || null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    if (!docSnap.exists) {
+      return response.status(404).json({ error: 'Not Found: Document does not exist' });
+    }
 
-    console.log(`[API/READMES/SAVE] README saved with ID: ${docRef.id} for user: ${uid}`);
+    const docData = docSnap.data();
+    if (docData?.userId !== uid) {
+      return response.status(403).json({ error: 'Forbidden: You do not own this document' });
+    }
+
+    // 4. Delete the document
+    await docRef.delete();
+
+    console.log(`[API/READMES/DELETE] README with ID: ${docId} deleted for user: ${uid}`);
 
     return response.status(200).json({
       success: true,
-      id: docRef.id,
-      message: 'README saved to dashboard successfully'
+      message: 'README deleted successfully'
     });
 
   } catch (error) {
-    console.error('[API/READMES/SAVE ERROR]', error);
+    console.error('[API/READMES/DELETE ERROR]', error);
     return response.status(500).json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

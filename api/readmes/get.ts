@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
 import { withSentry } from '../_lib/withSentry.js';
-import { SaveReadmeSchema } from '../_lib/validators/schemas.js';
 
 // Bulletproof Firebase Initialization
 if (!admin.apps.length) {
@@ -14,9 +13,9 @@ if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
-    console.log('[FIREBASE] Successfully initialized in save.ts');
+    console.log('[FIREBASE] Successfully initialized in get.ts');
   } catch (error) {
-    console.error('[FIREBASE INIT ERROR IN SAVE]', error);
+    console.error('[FIREBASE INIT ERROR IN GET]', error);
     throw error;
   }
 }
@@ -28,7 +27,7 @@ async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
-  if (request.method !== 'POST') {
+  if (request.method !== 'GET') {
     return response.status(405).json({ error: 'Method Not Allowed' });
   }
 
@@ -49,33 +48,35 @@ async function handler(
 
     const uid = decodedToken.uid;
 
-    // 2. Validate request body using Zod schema
-    const parsedData = SaveReadmeSchema.parse(request.body);
+    // 2. Fetch from Firestore
+    // Order by descending createdAt to show the newest READMEs first
+    const snapshot = await db.collection('readmes')
+      .where('userId', '==', uid)
+      .orderBy('createdAt', 'desc')
+      .get();
 
-    const { repoUrl, projectName, sectionId, content, stack } = parsedData;
+    if (snapshot.empty) {
+      return response.status(200).json({ readmes: [] });
+    }
 
-    // 3. Save to Firestore using validated data
-    const docRef = await db.collection('readmes').add({
-      userId: uid,
-      repoUrl,
-      projectName,
-      sectionId,
-      content,
-      stack: stack || null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    const readmes = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        // Convert Firestore Timestamps to ISO strings for the frontend
+        createdAt: data.createdAt?.toDate().toISOString() || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate().toISOString() || new Date().toISOString()
+      };
     });
-
-    console.log(`[API/READMES/SAVE] README saved with ID: ${docRef.id} for user: ${uid}`);
 
     return response.status(200).json({
       success: true,
-      id: docRef.id,
-      message: 'README saved to dashboard successfully'
+      readmes
     });
 
   } catch (error) {
-    console.error('[API/READMES/SAVE ERROR]', error);
+    console.error('[API/READMES/GET ERROR]', error);
     return response.status(500).json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

@@ -920,10 +920,11 @@ function Step5({ sections, repoUrl, stack, onBack, onRestart }: {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          repoUrl,
-          projectName: sections[0]?.projectName || 'README', // Fallback or extracted name
+          repoUrl: repoUrl || "",
+          projectName: sections[0]?.projectName || "Untitled Project",
+          sectionId: sections[0]?.id || "full",
           content: fullContent,
-          stack
+          stack: stack ? JSON.stringify(stack) : null
         })
       });
 

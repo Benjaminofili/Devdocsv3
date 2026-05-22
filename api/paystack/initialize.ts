@@ -44,6 +44,7 @@ async function handler(
         email,
         amount,
         plan: 'PLN_y204dppkjg7r8mv',
+        callback_url: `${request.headers.origin}/dashboard`,
         metadata: {
           userId
         }

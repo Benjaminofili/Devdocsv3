@@ -60,9 +60,10 @@ export const GenerateRequestSchema = z.object({
 
 // Save README Schema
 export const SaveReadmeSchema = z.object({
-  repoUrl: z.string(),
-  projectName: z.string(),
-  content: z.string(),
+  repoUrl: z.string().optional().default(""),
+  projectName: z.string().optional().default("Untitled Project"),
+  sectionId: z.string().optional().default("full"),
+  content: z.string().min(1, "Content cannot be empty"),
   stack: z.any().optional(),
 });
 

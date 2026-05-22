@@ -28,9 +28,31 @@ async function handler(
     return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  const userId = request.query.userId as string | null;
+  const authHeader = request.headers.authorization;
+  let uid: string | null = null;
+  let tier: UserTier = 'anonymous';
+
+  if (authHeader?.startsWith('Bearer ')) {
+    const idToken = authHeader.split(' ')[1];
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      uid = decodedToken.uid;
+    } catch (err) {
+      return response.status(401).json({ error: 'Unauthorized: Invalid token' });
+    }
+  }
+
+  if (uid) {
+    if (db) {
+      const userDoc = await db.collection('users').doc(uid).get();
+      tier = (userDoc.data()?.tier as UserTier) || 'free';
+    } else {
+      tier = 'free';
+    }
+  }
+
+  const userId = uid || (request.query.userId as string | null);
   const sessionId = request.query.sessionId as string | null;
-  const tier = (request.query.tier as UserTier) || 'anonymous';
 
   if (!sessionId && !userId) {
     return response.status(400).json({ error: 'Missing identifier' });
