@@ -116,6 +116,12 @@ async function handler(
     let fileContents: FileContent[] = [];
     let contextFiles: { name: string, content: string }[] = [];
 
+    const headers: Record<string, string> = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': GITHUB_CONFIG.USER_AGENT || 'DevDocs-V3'
+    };
+    if (githubToken) headers['Authorization'] = `token ${githubToken}`;
+
     if (repoUrl) {
       // New V2 flow: fetch repo tree, analyze, then fetch key files
       const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
@@ -125,20 +131,32 @@ async function handler(
 
       // 1️⃣ Fetch repo details to get default branch
       const repoDetailsRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
-      if (!repoDetailsRes.ok) throw new Error('Repo not found');
+      if (!repoDetailsRes.ok) {
+        throw new Error(`GitHub API rejected repo details request: ${repoDetailsRes.status} ${repoDetailsRes.statusText}`);
+      }
       const repoDetails = await repoDetailsRes.json();
-      const defaultBranch = repoDetails.default_branch;
+      const defaultBranch = repoDetails.default_branch || 'main';
 
-      // 2️⃣ Fetch the full recursive tree
-      const treeRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`, { headers });
-      if (!treeRes.ok) throw new Error('Failed to fetch repository tree');
+      // 2️⃣ Fetch the ENTIRE recursive file tree
+      const treeUrl = `https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`;
+      const treeRes = await fetch(treeUrl, { headers });
+      if (!treeRes.ok) {
+        throw new Error(`GitHub Tree API failed: ${treeRes.status} ${treeRes.statusText}`);
+      }
       const treeData = await treeRes.json();
 
-      // 3️⃣ Analyze the tree
+      // 3️⃣ Safety check: Ensure the tree actually exists
+      if (!treeData.tree || !Array.isArray(treeData.tree)) {
+        throw new Error('Repository is empty or GitHub did not return a valid file tree.');
+      }
+
+      // 4️⃣ Run the V2 Intelligence Engine!
       const analyzer = new RepoAnalyzer(treeData.tree);
       const repoProfile = analyzer.analyze();
 
-      // 4️⃣ Fetch high‑value key file contents
+      console.log('🧠 V2 Analysis Complete:', repoProfile);
+
+      // 5️⃣ Fetch high‑value key file contents
       const fetched = await fetchKeyFileContents(repoUrl, repoProfile.keyFiles, headers);
       fileContents = fetched.fileContents;
       contextFiles = fetched.contextFiles;
@@ -214,8 +232,8 @@ async function handler(
       data: { ...result, repoProfile: (response as any)._repoProfile },
     });
   } catch (error) {
-    logger.error('Analysis error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Analysis error:', errorMessage);
     return response.status(500).json({ error: 'Failed to analyze repository', details: errorMessage });
   }
 }
