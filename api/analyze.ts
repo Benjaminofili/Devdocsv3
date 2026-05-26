@@ -116,11 +116,20 @@ async function handler(
     let fileContents: FileContent[] = [];
     let contextFiles: { name: string, content: string }[] = [];
 
+    const envToken = getEnv().GITHUB_TOKEN;
+    const activeToken = githubToken || envToken;
+    const validToken = (typeof activeToken === 'string' && activeToken.trim().length > 15 && activeToken !== 'undefined' && activeToken !== 'null')
+      ? activeToken.trim()
+      : null;
+
     const headers: Record<string, string> = {
       'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': GITHUB_CONFIG.USER_AGENT || 'DevDocs-V3'
+      'User-Agent': GITHUB_CONFIG.USER_AGENT || 'DevDocs-V3',
+      'X-GitHub-Api-Version': '2022-11-28'
     };
-    if (githubToken) headers['Authorization'] = `token ${githubToken}`;
+    if (validToken) {
+      headers['Authorization'] = `token ${validToken}`;
+    }
 
     if (repoUrl) {
       // New V2 flow: fetch repo tree, analyze, then fetch key files
