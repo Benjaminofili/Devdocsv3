@@ -32,7 +32,7 @@ export class GroqProvider implements AIProviderInterface {
         if (this.keys.length <= 1) return false;
         this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
         this.initClient();
-        logger.info('ai-groq', `🔄 Rotated to Groq key #${this.currentKeyIndex + 1}`);
+        logger.info('ai-groq', { message: `🔄 Rotated to Groq key #${this.currentKeyIndex + 1}` });
         return true;
     }
 
@@ -61,7 +61,7 @@ Use markdown formatting appropriately.`;
 
         for (const model of this.models) {
             try {
-                logger.info('ai-groq', `Attempting with ${model}...`);
+                logger.info('ai-groq', { message: `Attempting with ${model}...` });
 
                 const completion = await this.client.chat.completions.create({
                     messages,
@@ -87,7 +87,7 @@ Use markdown formatting appropriately.`;
                 const isRateLimit = errorMessage.toLowerCase().includes('rate limit') || (error as any)?.status === 429;
                 
                 if (isRateLimit && this.rotateKey()) {
-                    logger.info('ai-groq', '⚠️ Rate limited, retrying with rotated key...');
+                    logger.info('ai-groq', { message: '⚠️ Rate limited, retrying with rotated key...' });
                     return this.generate(prompt, context);
                 }
                 

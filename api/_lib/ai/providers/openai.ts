@@ -31,7 +31,7 @@ export class OpenAIProvider implements AIProviderInterface {
     if (this.keys.length <= 1) return false;
     this.currentKeyIndex = (this.currentKeyIndex + 1) % this.keys.length;
     this.initClient();
-    logger.info('ai-openai', `🔄 Rotated to OpenAI key #${this.currentKeyIndex + 1}`);
+    logger.info('ai-openai', { message: `🔄 Rotated to OpenAI key #${this.currentKeyIndex + 1}` });
     return true;
   }
 
@@ -64,7 +64,7 @@ export class OpenAIProvider implements AIProviderInterface {
     if (!this.client) throw new Error('OpenAI not configured');
 
     try {
-      logger.info('ai-openai', `Generating with ${modelName} (attempt ${attempt}/${this.MAX_RETRIES})...`);
+      logger.info('ai-openai', { message: `Generating with ${modelName} (attempt ${attempt}/${this.MAX_RETRIES})...` });
 
       const response = await this.client.chat.completions.create({
         model: modelName,
@@ -81,7 +81,7 @@ export class OpenAIProvider implements AIProviderInterface {
 
     } catch (error: unknown) {
       const errorType = this.getErrorType(error);
-      logger.error(`OpenAI ${modelName} error (${errorType})`, error);
+      logger.error(`OpenAI ${modelName} error (${errorType})`, { error: error instanceof Error ? error.message : String(error) });
 
       if (errorType === 'context_length') return null;
 
@@ -90,13 +90,13 @@ export class OpenAIProvider implements AIProviderInterface {
 
       if (shouldRetry) {
         const waitTime = this.RETRY_DELAY * attempt;
-        logger.warn(`Retrying OpenAI request after ${waitTime / 1000}s...`);
+        logger.warn(`Retrying OpenAI request after ${waitTime / 1000}s...`, {});
         await this.wait(waitTime);
         return this.generateWithModel(modelName, messages, attempt + 1);
       }
 
       if (errorType === 'rate_limit' && this.rotateKey()) {
-        logger.info('ai-openai', '⚠️ Rate limited, retrying with rotated key...');
+        logger.info('ai-openai', { message: '⚠️ Rate limited, retrying with rotated key...' });
         return this.generateWithModel(modelName, messages, attempt);
       }
 

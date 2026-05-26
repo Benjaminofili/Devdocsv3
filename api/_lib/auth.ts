@@ -64,7 +64,8 @@ export async function verifyFirebaseToken(
         startsWithBearer: authHeader?.startsWith('Bearer ') 
       });
       const error = createErrorResponse('AUTH_MISSING_TOKEN');
-      return res.status(401).json(error);
+      res.status(401).json(error);
+      return;
     }
 
     const idToken = authHeader.split(' ')[1];
@@ -72,7 +73,8 @@ export async function verifyFirebaseToken(
     if (!idToken) {
       logger.warn('[AUTH] Empty token after Bearer prefix');
       const error = createErrorResponse('AUTH_MISSING_TOKEN');
-      return res.status(401).json(error);
+      res.status(401).json(error);
+      return;
     }
 
     // Verify the token with Firebase Admin SDK
@@ -82,7 +84,8 @@ export async function verifyFirebaseToken(
     } catch (verifyError) {
       logger.warn('[AUTH] Token verification failed', verifyError);
       const error = createErrorResponse('AUTH_INVALID_TOKEN');
-      return res.status(401).json(error);
+      res.status(401).json(error);
+      return;
     }
 
     const uid = decodedToken.uid;
@@ -140,7 +143,8 @@ export async function verifyFirebaseToken(
   } catch (error) {
     logger.error('[AUTH] Unexpected authentication error', error);
     const errorResp = createErrorResponse('AUTH_UNAUTHORIZED');
-    return res.status(401).json(errorResp);
+    res.status(401).json(errorResp);
+    return;
   }
 }
 

@@ -101,7 +101,7 @@ async function handler(
       cacheKey = `analyze:${repoUrl}`;
       const cached = await redis.get(cacheKey);
       if (cached) {
-        logger.cache('hit', cacheKey);
+        logger.info('cache_hit', { cacheKey });
         return response.status(200).json({ success: true, data: cached });
       }
     }

@@ -123,7 +123,7 @@ async function authenticatedHandler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
-  return await verifyFirebaseToken(request, response, handler);
+  await verifyFirebaseToken(request, response, handler);
 }
 
 export default withSentry(authenticatedHandler);
