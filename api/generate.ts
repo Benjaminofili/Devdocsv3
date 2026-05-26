@@ -121,7 +121,17 @@ async function handler(
     }
 
     // Determine tier securely from Firestore if authenticated
-    const userId = request.headers['x-user-id'] as string || null;
+    let userId: string | null = null;
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const idToken = authHeader.split(' ')[1];
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        userId = decoded.uid;
+      } catch (e) {
+        console.warn('Invalid Bearer token on generate route');
+      }
+    }
     const sessionId = request.headers['x-session-id'] as string || 'default-session';
     
     let tier: UserTier = 'anonymous';

@@ -2,6 +2,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { StackAnalyzer } from './_lib/analyzers/index.js';
 import { getSectionsForStack } from './_lib/bricks/index.js';
+import { decrypt } from './_lib/crypto.js';
 import { redis, checkRateLimit } from './lib/redis.js';
 import { AnalyzeRequestSchema } from './_lib/validators/schemas.js';
 import { logger } from './_lib/logger.js';
@@ -86,7 +87,12 @@ async function handler(
           const idToken = authHeader.split(' ')[1];
           const decodedToken = await auth.verifyIdToken(idToken);
           const userDoc = await db.collection('users').doc(decodedToken.uid).get();
-          githubToken = userDoc.data()?.githubToken;
+          const userData = userDoc.data();
+          if (userData?.githubTokenEncrypted) {
+            githubToken = decrypt(userData.githubTokenEncrypted);
+          } else if (userData?.githubToken) {
+            githubToken = userData.githubToken; // Fallback for old data
+          }
           if (githubToken) {
             logger.info('Successfully retrieved fallback token from Firestore');
           }
