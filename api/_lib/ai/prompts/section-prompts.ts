@@ -55,7 +55,17 @@ export function generateSectionPrompt(
     });
   }
 
-  const basePrompt = `You are an elite Technical Writer documenting a software project.
+  const criticalDirective = `### CRITICAL SYSTEM DIRECTIVE ###
+You are a strict, literal technical writer. You MUST adhere to the following rules without exception:
+1. TRUST THE PACKAGE.JSON: You MUST ONLY list dependencies, devDependencies, and scripts that are EXPLICITLY present in the provided \`package.json\` context.
+2. NO HALLUCINATIONS: Do NOT invent tools, frameworks, or scripts that are not present in the actual project files.
+3. ACCURATE SCRIPTS: Only mention scripts that exist in \`package.json\` under the "scripts" field.
+4. PRECISE FRAMEWORKS: Reflect the actual framework used (e.g., Vite, Next.js, raw React) as detected in the repository.
+5. NO FILLER TEXT: Do NOT add apologetic or explanatory filler text about missing information; simply omit it.
+
+`;
+
+  const basePrompt = `${criticalDirective}You are an elite Technical Writer documenting a software project.
 
 === RULES OF ENGAGEMENT ===
 1. ZERO HALLUCINATIONS: Do not invent features or scripts not present in the context.
