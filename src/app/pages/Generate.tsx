@@ -366,12 +366,15 @@ function Step1({ onNext }: { onNext: (data: any) => void }) {
     setLoading(true);
 
     try {
+      // Get Firebase token for authentication
+      const firebaseUser = auth.currentUser;
+      const token = firebaseUser ? await firebaseUser.getIdToken() : null;
+      
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-session-id': sessionId,
-          ...(user?.id ? { 'x-user-id': user.id } : {}),
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ repoUrl: url }),
       });
@@ -743,6 +746,10 @@ function Step4({
     const run = async () => {
       const generatedResults: GeneratedSection[] = [];
 
+      // Get Firebase token for authentication
+      const firebaseUser = auth.currentUser;
+      const token = firebaseUser ? await firebaseUser.getIdToken() : null;
+
       for (let i = 0; i < selectedSections.length; i++) {
         const id = selectedSections[i];
         setCurrentIdx(i);
@@ -753,8 +760,7 @@ function Step4({
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-session-id': sessionId,
-              ...(user?.id ? { 'x-user-id': user.id } : {}),
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
             },
             body: JSON.stringify({
               sectionId: id,
