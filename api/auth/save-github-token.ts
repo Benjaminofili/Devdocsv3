@@ -1,7 +1,7 @@
 // api/auth/save-github-token.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
-import { encrypt } from '../_lib/crypto';
+import { encrypt } from '../_lib/crypto.js';
 
 // Initialize Admin (reusing your existing pattern)
 if (!admin.apps.length) {
