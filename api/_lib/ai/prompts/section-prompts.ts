@@ -33,13 +33,14 @@ export function generateSectionPrompt(
     ? projectName 
     : fallbackName;
 
+  const isFlutter = stack.primary?.toLowerCase().includes('flutter') || stack.language?.toLowerCase() === 'dart';
   const isPython = stack.language?.toLowerCase() === 'python';
   const pkgMgr = stack.packageManager || 'npm';
   
-  const installCmd = isPython ? 'pip install -r requirements.txt' : `${pkgMgr} install`;
-  const devCmd = isPython ? 'python app.py  # or python run.py' : `${pkgMgr === 'npm' ? 'npm run dev' : pkgMgr + ' dev'}`;
-  const testCmd = isPython ? 'python -m pytest' : `${pkgMgr === 'npm' ? 'npm test' : pkgMgr + ' test'}`;
-  const buildCmd = isPython ? '# No build step required for Python' : `${pkgMgr === 'npm' ? 'npm run build' : pkgMgr + ' build'}`;
+  const installCmd = isFlutter ? 'flutter pub get' : (isPython ? 'pip install -r requirements.txt' : `${pkgMgr} install`);
+  const devCmd = isFlutter ? 'flutter run' : (isPython ? 'python app.py' : `${pkgMgr === 'npm' ? 'npm run dev' : pkgMgr + ' dev'}`);
+  const testCmd = isFlutter ? 'flutter test' : (isPython ? 'python -m pytest' : `${pkgMgr === 'npm' ? 'npm test' : pkgMgr + ' test'}`);
+  const buildCmd = isFlutter ? 'flutter build apk --release' : (isPython ? '# No build step' : `${pkgMgr === 'npm' ? 'npm run build' : pkgMgr + ' build'}`);
 
   const badgeMarkdown = githubInfo 
     ? `![License](https://img.shields.io/github/license/${githubInfo.owner}/${githubInfo.repo})\n![Stars](https://img.shields.io/github/stars/${githubInfo.owner}/${githubInfo.repo}?style=social)\n![Issues](https://img.shields.io/github/issues/${githubInfo.owner}/${githubInfo.repo})`
@@ -97,8 +98,7 @@ Example: "- **Role-Based Auth** - Supports Customers, Owners, and Admins."`,
     installation: `## 🚀 Installation
 
 ### Prerequisites
-- ${isPython ? 'Python 3.8+' : 'Node.js v18+'}
-- ${isPython ? 'pip' : pkgMgr}
+${isFlutter ? '- Flutter SDK (>= 3.11.0)\n- Dart SDK' : (isPython ? '- Python 3.8+\n- pip' : '- Node.js v18+\n- ' + pkgMgr)}
 
 ### Setup Instructions
 
@@ -116,7 +116,14 @@ ${installCmd}
 3. **Run the application**
 \`\`\`bash
 ${devCmd}
-\`\`\``,
+\`\`\`
+`,
+
+    `## 📂 Project Structure
+
+```text
+${repoData.structure}
+```
 
     'tech-stack': `## 🛠️ Tech Stack
 
