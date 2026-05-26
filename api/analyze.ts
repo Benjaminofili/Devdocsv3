@@ -10,6 +10,7 @@ import { getEnv } from './_lib/env.js';
 import { GITHUB_CONFIG } from './_lib/constants.js';
 import { withSentry } from './_lib/withSentry.js';
 import { minifyContext } from './_lib/utils.js';
+import { RepoAnalyzer } from './_lib/intelligence/repo-analyzer.js';
 import admin from 'firebase-admin';
 
 if (!admin.apps.length) {
@@ -116,9 +117,34 @@ async function handler(
     let contextFiles: { name: string, content: string }[] = [];
 
     if (repoUrl) {
-      const fetched = await fetchRepoContents(repoUrl, githubToken);
+      // New V2 flow: fetch repo tree, analyze, then fetch key files
+      const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+      if (!match) throw new Error('Invalid GitHub URL');
+      const [, owner, repo] = match;
+      const cleanRepo = repo.replace('.git', '');
+
+      // 1️⃣ Fetch repo details to get default branch
+      const repoDetailsRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
+      if (!repoDetailsRes.ok) throw new Error('Repo not found');
+      const repoDetails = await repoDetailsRes.json();
+      const defaultBranch = repoDetails.default_branch;
+
+      // 2️⃣ Fetch the full recursive tree
+      const treeRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`, { headers });
+      if (!treeRes.ok) throw new Error('Failed to fetch repository tree');
+      const treeData = await treeRes.json();
+
+      // 3️⃣ Analyze the tree
+      const analyzer = new RepoAnalyzer(treeData.tree);
+      const repoProfile = analyzer.analyze();
+
+      // 4️⃣ Fetch high‑value key file contents
+      const fetched = await fetchKeyFileContents(repoUrl, repoProfile.keyFiles, headers);
       fileContents = fetched.fileContents;
       contextFiles = fetched.contextFiles;
+
+      // Preserve repoProfile for response
+      (response as any)._repoProfile = repoProfile;
     } else if (files) {
       fileContents = files;
     }
@@ -185,7 +211,7 @@ async function handler(
 
     return response.status(200).json({
       success: true,
-      data: result,
+      data: { ...result, repoProfile: (response as any)._repoProfile },
     });
   } catch (error) {
     logger.error('Analysis error:', error);
@@ -331,5 +357,45 @@ async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise
     }
   }
 
+  return { fileContents, contextFiles };
+}
+
+// New helper to fetch the raw contents of key files identified by RepoAnalyzer
+async function fetchKeyFileContents(
+  repoUrl: string,
+  keyFiles: string[],
+  headers: Record<string, string>
+): Promise<{ fileContents: FileContent[]; contextFiles: { name: string; content: string }[] }> {
+  const match = repoUrl.match(/github\\.com\\/([^/]+)\\/([^/]+)/);
+  if (!match) throw new Error('Invalid GitHub URL');
+  const [, owner, repo] = match;
+  const cleanRepo = repo.replace('.git', '');
+
+  // Get default branch (repeat fetch, cheap compared to many file fetches)
+  const repoDetailsRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
+  if (!repoDetailsRes.ok) throw new Error('Repo not found');
+  const repoDetails = await repoDetailsRes.json();
+  const defaultBranch = repoDetails.default_branch;
+
+  const fileContents: FileContent[] = [];
+  const contextFiles: { name: string; content: string }[] = [];
+
+  for (const filePath of keyFiles) {
+    try {
+      const rawUrl = `https://raw.githubusercontent.com/${owner}/${cleanRepo}/${defaultBranch}/${filePath}`;
+      const res = await fetch(rawUrl, { headers });
+      if (!res.ok) continue;
+      const text = await res.text();
+      fileContents.push({ name: filePath, content: text });
+
+      // If this file is considered important, also add to contextFiles (minified)
+      const baseName = filePath.split('/').pop() || '';
+      if (isImportantFile(baseName)) {
+        contextFiles.push({ name: baseName, content: minifyContext(text, baseName) });
+      }
+    } catch (e) {
+      // ignore individual file errors
+    }
+  }
   return { fileContents, contextFiles };
 }
