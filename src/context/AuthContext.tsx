@@ -6,8 +6,7 @@ import {
   signInWithPopup, 
   signOut as firebaseSignOut 
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase/config';
+import { auth } from '../lib/firebase/config';
 
 interface AuthContextType {
   user: User | null;
@@ -46,11 +45,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const githubToken = credential?.accessToken;
 
       if (githubToken) {
-        // Securely store the token for backend use
-        await setDoc(doc(db, 'users', result.user.uid), { 
-          githubToken,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
+        // Send the token to the secure backend route for encryption and storage
+        const firebaseIdToken = await result.user.getIdToken();
+        const response = await fetch('/api/auth/save-github-token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${firebaseIdToken}`,
+          },
+          body: JSON.stringify({ githubToken }),
+        });
+        if (!response.ok) {
+          console.error('Failed to save GitHub token securely:', await response.text());
+        }
       }
     } catch (error) {
       console.error("Error signing in with GitHub:", error);

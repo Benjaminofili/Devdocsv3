@@ -3,12 +3,11 @@ import {
   signInWithPopup, 
   GithubAuthProvider, 
   signOut, 
-  onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from './config';
+import { auth } from './config';
 import { getUserTier } from '../tiers/config';
+import { secureFetch } from '@/lib/secureFetch'; // Import our secure wrapper
 
 const githubProvider = new GithubAuthProvider();
 githubProvider.addScope('repo');
@@ -24,11 +23,15 @@ export const loginWithGitHub = async () => {
     const githubToken = credential?.accessToken;
 
     if (githubToken) {
-      // Securely store the token for backend use
-      await setDoc(doc(db, 'users', result.user.uid), { 
-        githubToken,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      try {
+        // Securely send to our backend instead of writing to Firestore directly
+        await secureFetch('/api/auth/save-github-token', {
+          method: 'POST',
+          body: JSON.stringify({ githubToken })
+        });
+      } catch (error) {
+        console.error("Failed to securely save GitHub token:", error);
+      }
     }
 
     return result.user;
@@ -37,7 +40,6 @@ export const loginWithGitHub = async () => {
     throw error;
   }
 };
-
 
 export const logout = async () => {
   try {
