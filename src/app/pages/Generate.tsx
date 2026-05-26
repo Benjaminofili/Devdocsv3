@@ -919,7 +919,7 @@ function Step5({ sections, repoUrl, stack, onBack, onRestart }: {
         throw new Error('Authentication token not found');
       }
 
-      const res = await fetch('/api/readmes/save', {
+      const res = await fetch('/api/readmes', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

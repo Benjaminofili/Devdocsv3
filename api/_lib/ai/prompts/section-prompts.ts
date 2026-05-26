@@ -119,11 +119,12 @@ ${devCmd}
 \`\`\`
 `,
 
-    `## 📂 Project Structure
+    structure: `## 📂 Project Structure
 
-```text
-${repoData.structure}
-```
+\`\`\`text
+${additionalContext || 'No structure provided'}
+\`\`\`
+`,
 
     'tech-stack': `## 🛠️ Tech Stack
 

@@ -61,7 +61,7 @@ export function Dashboard() {
       const token = await auth.currentUser?.getIdToken();
       const headers = { Authorization: `Bearer ${token}` };
       const [readmesRes, historyRes] = await Promise.all([
-        fetch('/api/readmes/get', { headers }),
+        fetch('/api/readmes', { headers }),
         fetch('/api/user/history', { headers })
       ]);
       if (readmesRes.ok) {
@@ -122,7 +122,7 @@ export function Dashboard() {
     try {
       // Delete via serverless endpoint
     const token = await auth.currentUser?.getIdToken();
-    const res = await fetch('/api/readmes/delete', {
+    const res = await fetch('/api/readmes', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ docId: id })
