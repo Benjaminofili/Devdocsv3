@@ -13,6 +13,7 @@ export async function secureFetch(
   const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
 
   const mergedHeaders = {
+    'Content-Type': 'application/json',
     ...(init.headers || {}),
     ...authHeader,
   };
