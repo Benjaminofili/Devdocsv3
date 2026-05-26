@@ -20,7 +20,8 @@ export function generateSectionPrompt(
   stack: DetectedStack,
   projectName: string,
   additionalContext?: string,
-  repoUrl?: string
+  repoUrl?: string,
+  repoProfile?: any
 ): string {
   const githubInfo = extractGitHubInfo(repoUrl);
   
@@ -171,5 +172,13 @@ If test files exist in the context, briefly mention what is being tested.`,
 If API routes or controllers are present in the context, document the main endpoints, their methods, and purpose. If none exist, state that this is not an API-driven application.`,
   };
 
-  return basePrompt + '\n\n' + (sectionInstructions[section.id] || section.howToWrite);
+  let constraints = '';
+if (repoProfile && repoProfile.features) {
+  const allowed = Object.entries(repoProfile.features)
+    .filter(([, v]) => v)
+    .map(([k]) => k.replace('has', '').toLowerCase())
+    .join(', ');
+  constraints = `\n=== STRICT CONSTRAINTS ===\nOnly include content for the following features present in the repository: ${allowed}. Do NOT hallucinate other features.`;
+}
+return basePrompt + constraints + '\n\n' + (sectionInstructions[section.id] || section.howToWrite);
 }

@@ -30,6 +30,17 @@ if (!admin.apps.length) {
   }
 }
 
+function filterSectionsByFeatures(sections: any[], repoProfile: any) {
+  const features = repoProfile?.features || {};
+  return sections.filter(section => {
+    if (section.id === 'docker' && !features.hasDocker) return false;
+    if (section.id === 'testing' && !features.hasTesting) return false;
+    if (section.id === 'ci-cd' && !features.hasCICD) return false;
+    if (section.id === 'environment' && !features.hasEnvExample) return false;
+    return true;
+  });
+}
+
 // Safely initialize services
 const db = admin.apps.length ? admin.firestore() : null;
 const auth = admin.apps.length ? admin.auth() : null;
@@ -179,7 +190,6 @@ async function handler(
     const analyzer = new StackAnalyzer(fileContents);
     const stack = analyzer.analyze();
     stack.contextFiles = contextFiles;
-    const suggestedSections = getSectionsForStack(stack);
 
     const packageJsonFile = fileContents.find(f => f.name === 'package.json');
     const existingReadme = fileContents.find(f =>

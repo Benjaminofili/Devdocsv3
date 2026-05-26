@@ -54,6 +54,7 @@ export const GenerateRequestSchema = z.object({
   projectName: z.string().min(1, 'Project name is required'),
   repoUrl: z.string().optional(),
   repoData: RepoDataSchema.optional(),
+  repoProfile: z.any().optional(),
   isFirstSection: z.boolean().optional(),
   bypassCache: z.boolean().optional().default(false),
 });
