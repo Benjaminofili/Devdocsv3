@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
 import { withSentry } from '../_lib/withSentry.js';
+import { decrypt } from '../_lib/crypto.js';
 
 if (!admin.apps.length) {
   try {
@@ -54,7 +55,8 @@ async function handler(request: VercelRequest, response: VercelResponse) {
 
     // 2. Fetch GitHub token from Firestore
     const userDoc = await db.collection('users').doc(uid).get();
-    const githubToken = userDoc.data()?.githubToken;
+    const encrypted = userDoc.data()?.githubTokenEncrypted;
+  const githubToken = encrypted ? decrypt(encrypted) : undefined;
 
     if (!githubToken) {
       return response.status(403).json({ 

@@ -366,7 +366,7 @@ async function fetchKeyFileContents(
   keyFiles: string[],
   headers: Record<string, string>
 ): Promise<{ fileContents: FileContent[]; contextFiles: { name: string; content: string }[] }> {
-  const match = repoUrl.match(/github\\.com\\/([^/]+)\\/([^/]+)/);
+  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (!match) throw new Error('Invalid GitHub URL');
   const [, owner, repo] = match;
   const cleanRepo = repo.replace('.git', '');
