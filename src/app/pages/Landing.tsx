@@ -7,6 +7,7 @@ import {
   Package, Shield, Globe
 } from 'lucide-react';
 
+import type { FileContent } from '../../api/analyze';
 import { DevDocsIcon } from '../components/DevDocsIcon';
 import { SEOHead } from '../components/SEOHead';
 
@@ -204,7 +205,7 @@ const STATS = [
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' as any } },
 };
 
 const stagger = {

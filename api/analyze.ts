@@ -1,7 +1,7 @@
 // api/analyze.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { StackAnalyzer } from './_lib/analyzers/index.js';
-import { getSectionsForStack } from './_lib/bricks/index.js';
+import { analyseRepo } from '../src/lib/repo-intelligence/analyzer';
+// import { getSectionsForStack } from './_lib/bricks/index.js';
 import { redis, checkRateLimit } from './lib/redis.js';
 import { AnalyzeRequestSchema } from './_lib/validators/schemas.js';
 import { logger } from './_lib/logger.js';
@@ -117,10 +117,40 @@ async function handler(
       fileContents = files;
     }
 
-    const analyzer = new StackAnalyzer(fileContents);
-    const stack = analyzer.analyze();
-    stack.contextFiles = contextFiles;
-    const suggestedSections = getSectionsForStack(stack);
+    // New analysis using the modular Repo‑Intelligence engine
+    let profile = null;
+    if (repoUrl) {
+      // analyseRepo fetches files, builds context, and returns a full RepoProfile
+      profile = await analyseRepo(repoUrl, githubToken);
+      // For backwards‑compatibility we keep the old variables empty – the
+      // response now uses the data from `profile` instead of the legacy `stack`.
+      fileContents = [];
+      contextFiles = [];
+    } else if (files) {
+      // Fallback: retain previous behaviour for direct file uploads
+      fileContents = files;
+    }
+
+    // Build the legacy‑shape response using the new profile where possible
+    const result = {
+      profile,
+      // `suggestedSections` is retained for the UI – it will be empty when
+      // we used `analyseRepo` because the old stack‑based logic is bypassed.
+      suggestedSections: profile ? [] : getSectionsForStack(new StackAnalyzer(fileContents).analyze()),
+      files: fileContents.map(f => f.name),
+      repoData: {
+        files: fileContents.filter(f => f.content),
+        structure: fileContents.map(f => f.name),
+        // The legacy fields are kept for compatibility – values are derived
+        // from `profile` when available.
+        packageJson: profile?.packageJson,
+        existingReadme: profile?.existingReadme,
+        envExample: profile?.envExample,
+        hasDocker: profile?.hasDocker ?? false,
+        hasTests: profile?.hasTesting ?? false,
+        hasCI: profile?.hasCI ?? false,
+      },
+    };
 
     const packageJsonFile = fileContents.find(f => f.name === 'package.json');
     const existingReadme = fileContents.find(f =>
@@ -164,23 +194,20 @@ async function handler(
       ),
     };
 
-    const result = {
-      stack,
-      suggestedSections,
-      files: fileContents.map(f => f.name),
-      repoData,
-    };
-
+    // Cache the result (profile based)
     if (cacheKey) {
       await redis.set(cacheKey, result, { ex: 900 });
     }
 
-    logger.info('📊 Analysis complete', { stack: stack.primary });
+    // Log summary of analysis
+    logger.info('📊 Analysis complete', { profile: result.profile?.primaryStack });
 
     return response.status(200).json({
       success: true,
       data: result,
     });
+
+
   } catch (error) {
     logger.error('Analysis error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
