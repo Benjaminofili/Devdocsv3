@@ -50,17 +50,7 @@ export const ContextFileSchema = z.object({
 // contract; tighten individual fields as they stabilise.
 // ─────────────────────────────────────────────
 
-export const RepoProfileSchema = z.object({
-  summary: z.string().optional(),
-  features: z.array(z.string()).default([]),
-  architecture: z.string().optional(),
-  apiEndpoints: z.array(z.string()).default([]),
-  hasAuthentication: z.boolean().optional(),
-  hasDatabaseLayer: z.boolean().optional(),
-  deploymentTargets: z.array(z.string()).default([]),
-  // Escape hatch for future fields the analyzer may emit
-  extras: z.record(z.string(), z.unknown()).optional(),
-});
+export const RepoProfileSchema = z.record(z.string(), z.any());
 
 // ─────────────────────────────────────────────
 // Minified package.json
