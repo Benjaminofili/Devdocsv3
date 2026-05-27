@@ -27,9 +27,9 @@ async function handler(
     return response.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { email, amount, userId } = request.body;
+  const { email, amount, userId, plan } = request.body;
 
-  if (!email || !amount || !userId) {
+  if (!email || !amount || !userId || !plan) {
     return response.status(400).json({ error: 'Missing required fields: email, amount, userId' });
   }
 
@@ -43,10 +43,11 @@ async function handler(
       body: JSON.stringify({
         email,
         amount,
-        plan: 'PLN_y204dppkjg7r8mv',
+        plan,
         callback_url: `${request.headers.origin}/dashboard`,
         metadata: {
-          userId
+          userId,
+          plan
         }
       })
     });
