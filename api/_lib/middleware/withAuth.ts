@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import admin from 'firebase-admin';
-import { redis } from '../redis.js';
+import { redis } from '../../lib/redis.js';
 import { TIERS, TierId, TierConfig } from '../../../shared/tiers.config.js';
 
 // Ensure Firebase Admin is initialized
