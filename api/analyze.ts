@@ -191,6 +191,13 @@ async function handler(
     const stack = analyzer.analyze();
     stack.contextFiles = contextFiles;
 
+    // Determine suggested sections based on stack
+    const suggestedSections = getSectionsForStack(stack);
+    const filteredSections = filterSectionsByFeatures(
+        suggestedSections,
+        (response as any)._repoProfile?.features ?? {}
+    );
+
     const packageJsonFile = fileContents.find(f => f.name === 'package.json');
     const existingReadme = fileContents.find(f =>
       f.name.toLowerCase() === 'readme.md' || f.name.toLowerCase() === 'readme'
@@ -235,7 +242,7 @@ async function handler(
 
     const result = {
       stack,
-      suggestedSections,
+      suggestedSections: filteredSections,
       files: fileContents.map(f => f.name),
       repoData,
     };
