@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { motion } from 'motion/react';
+import { easeOut } from 'motion';
 import {
   ArrowRight, Github, Zap, CheckCircle, Code2, Layers, FileText,
   GitBranch, Terminal, Sparkles, Clock, Users, Star, ChevronRight,
@@ -204,7 +205,7 @@ const STATS = [
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.5, ease: easeOut } },
 };
 
 const stagger = {
@@ -240,7 +241,7 @@ export function Landing() {
               className="space-y-6"
               initial={{ opacity: 0, y: 32 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: 'easeOut' }}
+              transition={{ duration: 0.6, ease: easeOut }}
             >
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-indigo-400 text-xs">
                 <Sparkles className="w-3.5 h-3.5" />
@@ -292,7 +293,7 @@ export function Landing() {
               className="relative"
               initial={{ opacity: 0, y: 32 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: 'easeOut', delay: 0.15 }}
+              transition={{ duration: 0.6, ease: easeOut, delay: 0.15 }}
             >
               <LoopingTerminal />
               {/* Glow under terminal */}

@@ -16,102 +16,217 @@ function extractGitHubInfo(repoUrl?: string): GitHubInfo | null {
 }
 
 export function generateSectionPrompt(
-  section: SectionConfig,
-  stack: DetectedStack,
-  projectName: string,
+  section:            SectionConfig,
+  stack:              DetectedStack,
+  projectName:        string,
   additionalContext?: string,
-  repoUrl?: string,
-  repoProfile?: any
+  repoUrl?:           string,
+  repoProfile?:       any,
 ): string {
   const githubInfo = extractGitHubInfo(repoUrl);
-  
-  // Smart Fallback: If projectName is generic, extract it from the GitHub Repo Name
-  let fallbackName = 'Project';
-  if (githubInfo && githubInfo.repo) {
-    fallbackName = githubInfo.repo.charAt(0).toUpperCase() + githubInfo.repo.slice(1);
-  }
-  const safeProjectName = (typeof projectName === 'string' && projectName.trim() && projectName !== 'Project') 
-    ? projectName 
-    : fallbackName;
 
-  const isFlutter = stack.primary?.toLowerCase().includes('flutter') || stack.language?.toLowerCase() === 'dart';
-  const isPython = stack.language?.toLowerCase() === 'python';
-  const pkgMgr = stack.packageManager || 'npm';
-  
-  const installCmd = isFlutter ? 'flutter pub get' : (isPython ? 'pip install -r requirements.txt' : `${pkgMgr} install`);
-  const devCmd = isFlutter ? 'flutter run' : (isPython ? 'python app.py' : `${pkgMgr === 'npm' ? 'npm run dev' : pkgMgr + ' dev'}`);
-  const testCmd = isFlutter ? 'flutter test' : (isPython ? 'python -m pytest' : `${pkgMgr === 'npm' ? 'npm test' : pkgMgr + ' test'}`);
-  const buildCmd = isFlutter ? 'flutter build apk --release' : (isPython ? '# No build step' : `${pkgMgr === 'npm' ? 'npm run build' : pkgMgr + ' build'}`);
+  const fallbackName = githubInfo?.repo
+    ? githubInfo.repo.charAt(0).toUpperCase() + githubInfo.repo.slice(1)
+    : 'Project';
+  const safeProjectName =
+    typeof projectName === 'string' &&
+    projectName.trim() &&
+    projectName !== 'Project'
+      ? projectName
+      : fallbackName;
 
-  const badgeMarkdown = githubInfo 
-    ? `![License](https://img.shields.io/github/license/${githubInfo.owner}/${githubInfo.repo})\n![Stars](https://img.shields.io/github/stars/${githubInfo.owner}/${githubInfo.repo}?style=social)\n![Issues](https://img.shields.io/github/issues/${githubInfo.owner}/${githubInfo.repo})`
+  // ── Stack-aware command inference ─────────────────────────────────────────
+  const isFlutter = stack.primary?.toLowerCase().includes('flutter') ||
+                    stack.language?.toLowerCase() === 'dart';
+  const isPython  = stack.language?.toLowerCase() === 'python';
+  const pkgMgr    = stack.packageManager || 'npm';
+
+  // Read actual scripts from package.json — never guess
+  const pkgScripts: Record<string, string> =
+    (stack as any).packageJson?.scripts ?? {};
+
+  const installCmd = isFlutter
+    ? 'flutter pub get'
+    : isPython
+      ? 'pip install -r requirements.txt'
+      : `${pkgMgr} install`;
+
+  const devCmd = isFlutter
+    ? 'flutter run'
+    : isPython
+      ? 'python app.py'
+      : pkgScripts.dev ?? pkgScripts.start ?? `${pkgMgr} run dev`;
+
+  const testCmd = isFlutter
+    ? 'flutter test'
+    : isPython
+      ? 'python -m pytest'
+      : pkgScripts.test ?? `${pkgMgr} test`;
+
+  const buildCmd = isFlutter
+    ? 'flutter build apk --release'
+    : isPython
+      ? '# No build step required'
+      : pkgScripts.build ?? `${pkgMgr} run build`;
+
+  // ── Badges ─────────────────────────────────────────────────────────────────
+  const badgeMarkdown = githubInfo
+    ? [
+        `![License](https://img.shields.io/github/license/${githubInfo.owner}/${githubInfo.repo})`,
+        `![Stars](https://img.shields.io/github/stars/${githubInfo.owner}/${githubInfo.repo}?style=social)`,
+        `![Issues](https://img.shields.io/github/issues/${githubInfo.owner}/${githubInfo.repo})`,
+      ].join('\n')
     : `![License](https://img.shields.io/badge/license-MIT-blue.svg)`;
 
+  // ── Context files block ────────────────────────────────────────────────────
   let contextFilesStr = '';
   if (stack.contextFiles && stack.contextFiles.length > 0) {
-    contextFilesStr = `\n=== CRITICAL SOURCE CODE CONTEXT ===\nYou MUST base your answer strictly on the following minified repository files:\n\n`;
-    stack.contextFiles.forEach(file => {
-      contextFilesStr += `--- START ${file.name} ---\n${file.content}\n--- END ${file.name} ---\n\n`;
-    });
+    contextFilesStr =
+      '\n=== CRITICAL SOURCE CODE CONTEXT ===\n' +
+      'You MUST base your answer strictly on the following repository files:\n\n';
+    for (const file of stack.contextFiles) {
+      contextFilesStr +=
+        `--- START ${file.name} ---\n${file.content}\n--- END ${file.name} ---\n\n`;
+    }
   }
 
+  // ── RepoProfile feature constraints ───────────────────────────────────────
+  let featureConstraints = '';
+  if (repoProfile?.features) {
+    const present = Object.entries(repoProfile.features)
+      .filter(([, v]) => Boolean(v))
+      .map(([k]) => k.replace('has', '').toLowerCase())
+      .join(', ');
+    featureConstraints =
+      '\n=== STRICT FEATURE CONSTRAINTS ===\n' +
+      `The repository has ONLY the following confirmed features: ${present || 'none'}.\n` +
+      'DO NOT write about, imply, or mention any feature not in this list.\n';
+  }
+
+  // ── Hardened critical directive ────────────────────────────────────────────
   const criticalDirective = `### CRITICAL SYSTEM DIRECTIVE ###
-You are a strict, literal technical writer. You MUST adhere to the following rules without exception:
-1. TRUST THE PACKAGE.JSON: You MUST ONLY list dependencies, devDependencies, and scripts that are EXPLICITLY present in the provided \`package.json\` context.
-2. NO HALLUCINATIONS: Do NOT invent tools, frameworks, or scripts that are not present in the actual project files.
-3. ACCURATE SCRIPTS: Only mention scripts that exist in \`package.json\` under the "scripts" field.
-4. PRECISE FRAMEWORKS: Reflect the actual framework used (e.g., Vite, Next.js, raw React) as detected in the repository.
-5. NO FILLER TEXT: Do NOT add apologetic or explanatory filler text about missing information; simply omit it.
+You are a strict, literal technical writer. Follow every rule below without exception.
+
+1. TRUST THE PACKAGE.JSON
+   Only list dependencies, devDependencies, and scripts that are EXPLICITLY present
+   in the provided package.json context. Never invent entries.
+
+2. NO HALLUCINATIONS
+   Do NOT invent tools, frameworks, libraries, environment variables, or API routes
+   that do not appear in the provided source-code context.
+
+3. NO CRA / FRAMEWORK BIAS
+   Do NOT assume Create React App, Next.js, or any other framework.
+   Check the actual dependencies. If it uses Vite, say Vite. If it uses Next.js,
+   say Next.js. NEVER mention react-scripts, npm start, or eject unless those
+   exact strings appear in the scripts field of package.json.
+
+4. NO APOLOGETIC FILLER
+   If a feature, config file, or section is missing from the context, DO NOT write
+   explanatory paragraphs about its absence. DO NOT write:
+   - "There is no explicit mention of..."
+   - "Since there is no .env.example..."
+   - "Note: this project does not appear to have..."
+   - "The license for this project is not explicitly stated..."
+   Simply omit the missing content silently.
+
+5. ACCURATE SCRIPTS ONLY
+   When documenting run commands, use ONLY the exact command strings found in the
+   scripts object of the provided package.json. Do not guess or normalise them.
+
+6. NO EMPTY SECTIONS
+   If a section has no supporting evidence in the context, DO NOT render it.
+   Do not output a heading with no content beneath it. Do not output "##" alone.
+
+7. NO DUPLICATE SECTIONS
+   Each section must appear exactly once. Do not repeat headings or content.
+
+8. MARKDOWN FORMATTING
+   - Leave one blank line before AND after every heading, list, and code block.
+   - Do NOT wrap your entire response in a markdown code fence.
+   - All tables MUST include an alignment row (|---|---|) and open/close with pipes.
+
+9. EMERGENCY SKIP RULE
+   If you cannot populate a section with at least ONE concrete, evidence-based item
+   from the provided context, output NOTHING for that section. Not even a heading.
+   Silence is always better than hallucination.
 
 `;
 
-  const basePrompt = `${criticalDirective}You are an elite Technical Writer documenting a software project.
+  // ── Base prompt ────────────────────────────────────────────────────────────
+  const basePrompt =
+    criticalDirective +
+    'You are an elite Technical Writer documenting a real software project.\n\n' +
+    '=== PROJECT METADATA ===\n' +
+    `Project Name:      ${safeProjectName}\n` +
+    `Primary Framework: ${stack.primary || 'Unknown'}\n` +
+    `Language:          ${stack.language || 'Unknown'}\n` +
+    contextFilesStr +
+    featureConstraints + '\n' +
+    `TASK: Generate ONLY the "${section.name}" section for ${safeProjectName}.\n` +
+    'If you cannot find evidence for this section in the context, output nothing.\n';
 
-=== RULES OF ENGAGEMENT ===
-1. ZERO HALLUCINATIONS: Do not invent features or scripts not present in the context.
-2. BE SPECIFIC: Use exact framework names and technical terms.
-3. TONE: Professional, concise, and developer-focused.
-4. STRICT MARKDOWN FORMATTING: 
-   - You MUST leave a blank empty line before AND after every heading, list, and table.
-   - Do NOT wrap your entire response in \`\`\`markdown blocks.
-5. TABLES: All tables MUST have proper alignment rows (e.g., |---|---|---|) and start/end with pipes.
+  // ── Per-section instructions with explicit skip fallbacks ──────────────────
+  //
+  // IMPORTANT: Every "IF NO EVIDENCE" line below is a real instruction to the
+  // AI model, not a comment. Keep them in ALL-CAPS so they stand out in the prompt.
 
-=== PROJECT METADATA ===
-Project Name: ${safeProjectName}
-Primary Framework: ${stack.primary || 'Unknown'}
-Language: ${stack.language || 'Unknown'}
-${contextFilesStr}
+  // structure section: only render if additionalContext is actually populated
+  const structureBody = additionalContext?.trim()
+    ? `## 📂 Project Structure\n\n\`\`\`text\n${additionalContext.trim()}\n\`\`\``
+    : '';  // empty string → base prompt's "output nothing" rule kicks in
 
-TASK: Generate ONLY the "${section.name}" section for ${safeProjectName}.
-`;
+  // deployment section: only include Docker block when evidence exists
+  const dockerBlock = stack.hasDocker
+    ? `\n### Docker\n\`\`\`bash\ndocker build -t ${safeProjectName.toLowerCase()} .\n` +
+      `docker run -p 3000:3000 ${safeProjectName.toLowerCase()}\n\`\`\``
+    : '';
 
-  const sectionInstructions: Record<string, string> = {
-    header: `Include the project title as an H1 heading.
-Include these badges directly below the title:
+  // Use a null-prototype object so inherited keys (__proto__, constructor, etc.)
+  // can never be reached via bracket notation with attacker-controlled input.
+  const sectionInstructions: Record<string, string> = Object.assign(
+    Object.create(null) as Record<string, string>,
+  {
+    header:
+`Use the project name as an H1 heading.
+Place these badges on the next line:
 ${badgeMarkdown}
 
-Analyze the provided source code context to write a highly specific 2-3 sentence overview of what this exact application does, who it is for, and its primary technical mechanism.
+Write a 2–3 sentence overview derived STRICTLY from the source code:
+what the application does, who it is for, and its primary technical mechanism.
+If no clear purpose can be determined from the code, write only the heading and badges.
 
-Add a "## Quick Start" heading with this code block:
+Add a "## Quick Start" block ONLY if the commands below are valid and evidenced:
 \`\`\`bash
 ${installCmd}
 ${devCmd}
 \`\`\`
 
-Add a "## ✨ Highlights" heading with 3 bullet points highlighting the most complex or valuable technical features proven by the code.`,
+Add a "## ✨ Highlights" section with exactly 3 bullet points.
+Each bullet must reference a specific technical feature evidenced in the code.
+If fewer than 3 features are evidenced, output only what exists.`,
 
-    features: `## ✨ Core Features
+    features:
+`## ✨ Core Features
 
-Extract the main features DIRECTLY from the provided source code context. Look at models, schemas, and routes.
-Format as a bulleted list with bold feature names and a brief description.
-Example: "- **Role-Based Auth** - Supports Customers, Owners, and Admins."`,
+Extract features ONLY from the provided source code (models, schemas, routes, components).
+Format as a bulleted list with bold feature names and a one-sentence description.
 
-    installation: `## 🚀 Installation
+IF NO FEATURES CAN BE EXTRACTED FROM THE CONTEXT, OUTPUT NOTHING FOR THIS SECTION.`,
+
+    installation:
+`## 🚀 Installation
 
 ### Prerequisites
-${isFlutter ? '- Flutter SDK (>= 3.11.0)\n- Dart SDK' : (isPython ? '- Python 3.8+\n- pip' : '- Node.js v18+\n- ' + pkgMgr)}
+${
+  isFlutter
+    ? '- Flutter SDK (>= 3.11.0)\n- Dart SDK'
+    : isPython
+      ? '- Python 3.8+\n- pip'
+      : `- Node.js v18+\n- ${pkgMgr}`
+}
 
-### Setup Instructions
+### Setup
 
 1. **Clone the repository**
 \`\`\`bash
@@ -124,71 +239,88 @@ cd ${safeProjectName}
 ${installCmd}
 \`\`\`
 
-3. **Run the application**
+3. **Start the application**
 \`\`\`bash
 ${devCmd}
 \`\`\`
-`,
 
-    structure: `## 📂 Project Structure
+IF ANY COMMAND ABOVE IS NOT EVIDENCED IN PACKAGE.JSON, OMIT THAT STEP ENTIRELY.`,
 
-\`\`\`text
-${additionalContext || 'No structure provided'}
-\`\`\`
-`,
+    structure: structureBody,
 
-    'tech-stack': `## 🛠️ Tech Stack
+    'tech-stack':
+`## 🛠️ Tech Stack
 
-Analyze the provided source code context and list the ACTUAL frameworks, databases, and libraries used.
-You MUST format it EXACTLY like this markdown table, including the pipes and dashes:
+Analyse the source code context and list ONLY the frameworks, databases, and
+libraries that are ACTUALLY present as dependencies.
+Format as this exact markdown table — include the alignment row:
 
 | Category | Technology | Version |
 | :--- | :--- | :--- |
-| Framework | Flask | 3.1.3 |
-| Database | PostgreSQL | 15.0 |`,
 
-    environment: `## ⚙️ Environment Configuration
+Populate ONLY from real entries in the dependency files. Add one row per detected item.
+IF NO DEPENDENCIES ARE EVIDENCED IN THE CONTEXT, OUTPUT NOTHING FOR THIS SECTION.`,
 
-If an \`.env.example\` or configuration file is present, document the required variables. 
-You MUST format it EXACTLY like this markdown table:
+    environment:
+`## ⚙️ Environment Variables
+
+Document ONLY the variables present in the provided .env.example or config files.
+Format as this exact markdown table — include the alignment row:
 
 | Variable | Description | Required |
 | :--- | :--- | :--- |
-| DATABASE_URL | Connection string | Yes |`,
 
-    scripts: `## 📜 Available Commands
+Populate ONLY from the actual .env.example content provided above.
+IF NO .ENV.EXAMPLE OR CONFIG FILE WAS PROVIDED IN THE CONTEXT, OUTPUT NOTHING FOR THIS SECTION.`,
 
-Document the scripts or commands used to run, build, or seed this project based on the provided context files.
-For example: \`${installCmd}\` and \`${devCmd}\`.`,
+    scripts:
+`## 📜 Available Commands
 
-    deployment: `## 🚀 Deployment
+Document ONLY the scripts found in the "scripts" field of the provided package.json.
+Format as a markdown table:
 
-### Build
+| Command | Description |
+| :--- | :--- |
+
+IF THE SCRIPTS FIELD IS ABSENT OR EMPTY IN PACKAGE.JSON, OUTPUT NOTHING FOR THIS SECTION.`,
+
+    deployment:
+`## 🚀 Deployment
+
+### Production Build
 \`\`\`bash
 ${buildCmd}
 \`\`\`
+${dockerBlock}
 
-${stack.hasDocker ? `### Docker\n\`\`\`bash\ndocker build -t ${safeProjectName.toLowerCase()} .\ndocker run -p 3000:3000 ${safeProjectName.toLowerCase()}\n\`\`\`` : 'Document standard deployment practices for this framework.'}`,
+IF THE BUILD COMMAND ABOVE IS NOT EVIDENCED IN PACKAGE.JSON, AND NO DOCKER FILE EXISTS,
+OUTPUT NOTHING FOR THIS SECTION.`,
 
-    testing: `## 🧪 Testing
+    testing:
+`## 🧪 Testing
 
 \`\`\`bash
 ${testCmd}
 \`\`\`
-If test files exist in the context, briefly mention what is being tested.`,
 
-    'api-docs': `## 📚 API Reference
+If test files are present in the context, briefly describe what is being tested.
+Do NOT mention test tooling that is not in devDependencies.
+IF NO TEST FILES AND NO TEST SCRIPT EXIST IN THE CONTEXT, OUTPUT NOTHING FOR THIS SECTION.`,
 
-If API routes or controllers are present in the context, document the main endpoints, their methods, and purpose. If none exist, state that this is not an API-driven application.`,
-  };
+    'api-docs':
+`## 📚 API Reference
 
-  let constraints = '';
-if (repoProfile && repoProfile.features) {
-  const allowed = Object.entries(repoProfile.features)
-    .filter(([, v]) => v)
-    .map(([k]) => k.replace('has', '').toLowerCase())
-    .join(', ');
-  constraints = `\n=== STRICT CONSTRAINTS ===\nOnly include content for the following features present in the repository: ${allowed}. Do NOT hallucinate other features.`;
-}
-return basePrompt + constraints + '\n\n' + (sectionInstructions[section.id] || section.howToWrite);
+Document ONLY the API routes or controllers present in the provided source-code context.
+IF NO ROUTES OR CONTROLLERS EXIST IN THE CONTEXT, OUTPUT NOTHING FOR THIS SECTION.`,
+  });
+
+  // Guard against prototype-chain traversal: only access a key that is a
+  // direct own property of the null-prototype map above.
+  const safeId     = typeof section.id === 'string' ? section.id : '';
+  const instruction =
+    Object.hasOwn(sectionInstructions, safeId)
+      ? sectionInstructions[safeId]
+      : section.howToWrite ?? '';
+
+  return `${basePrompt}\n${instruction}`;
 }
