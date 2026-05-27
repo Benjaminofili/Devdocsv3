@@ -11,10 +11,11 @@ export interface MasterPromptResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers
+// Helpers (Crash-proofed)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function formatPackageJson(pkg: MinifiedPackageJson): string {
+function formatPackageJson(pkg: any): string {
+  if (!pkg) return '';
   const lines: string[] = [];
 
   if (pkg.name)        lines.push(`name: ${pkg.name}`);
@@ -39,34 +40,34 @@ function formatPackageJson(pkg: MinifiedPackageJson): string {
   return lines.join('\n');
 }
 
-function formatRepoProfile(profile: RepoProfile): string {
+function formatRepoProfile(profile: any): string {
+  if (!profile) return '';
   const lines: string[] = [];
 
-  if (profile.summary) {
-    lines.push(`Project summary: ${profile.summary}`);
-  }
-
-  if (profile.features.length) {
-    lines.push('\nKey features:');
-    profile.features.forEach(f => lines.push(`  - ${f}`));
-  }
-
   if (profile.architecture) {
-    lines.push(`\nArchitecture: ${profile.architecture}`);
+    lines.push(`Architecture: ${profile.architecture}`);
   }
 
-  if (profile.apiEndpoints.length) {
-    lines.push('\nAPI endpoints:');
-    profile.apiEndpoints.slice(0, 10).forEach(e => lines.push(`  ${e}`));
+  if (profile.frameworks?.length) {
+    lines.push(`Frameworks: ${profile.frameworks.join(', ')}`);
   }
 
-  const flags: string[] = [];
-  if (profile.hasAuthentication)  flags.push('authentication');
-  if (profile.hasDatabaseLayer)   flags.push('database layer');
-  if (flags.length) lines.push(`\nProject includes: ${flags.join(', ')}`);
+  if (profile.languages && typeof profile.languages === 'object') {
+    const langs = Object.entries(profile.languages)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
+      .slice(0, 5)
+      .map(([lang]) => lang)
+      .join(', ');
+    if (langs) lines.push(`Primary Languages: ${langs}`);
+  }
 
-  if (profile.deploymentTargets.length) {
-    lines.push(`Deployment targets: ${profile.deploymentTargets.join(', ')}`);
+  // ✅ FIX: Handle features as an OBJECT, not an array
+  if (profile.features && typeof profile.features === 'object') {
+    const activeFeatures = Object.entries(profile.features)
+      .filter(([, v]) => v === true)
+      .map(([k]) => k.replace('has', ''))
+      .join(', ');
+    if (activeFeatures) lines.push(`Confirmed Features: ${activeFeatures}`);
   }
 
   return lines.join('\n');
@@ -93,7 +94,7 @@ ABSOLUTE RULES — violating any of these is a critical failure:
 `.trim();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// User prompt  (context + blueprint)
+// User prompt builder (Crash-proofed)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildMasterPrompt(req: GenerateMasterRequest): MasterPromptResult {
@@ -127,11 +128,11 @@ export function buildMasterPrompt(req: GenerateMasterRequest): MasterPromptResul
   ].filter(Boolean);
   if (flags.length) parts.push(`Infrastructure: ${flags.join(', ')}`);
 
-  if (stack.frameworks.length) {
+  if (stack.frameworks?.length) {
     parts.push(`Frameworks / libraries: ${stack.frameworks.join(', ')}`);
   }
 
-  if (stack.domainHints.length) {
+  if (stack.domainHints?.length) {
     parts.push(`Domain hints: ${stack.domainHints.join(', ')}`);
   }
 
@@ -142,19 +143,20 @@ export function buildMasterPrompt(req: GenerateMasterRequest): MasterPromptResul
   }
 
   // ── 3. Repo profile  (semantic analysis) ─────────────────────────────────
-  parts.push(`\n=== REPO PROFILE ===`);
-  parts.push(formatRepoProfile(repoProfile));
+  if (repoProfile) {
+    parts.push(`\n=== REPO PROFILE ===`);
+    parts.push(formatRepoProfile(repoProfile));
+  }
 
   // ── 4. Environment variables ──────────────────────────────────────────────
   if (envExample) {
     parts.push(`\n=== .ENV.EXAMPLE ===`);
-    // Truncate to 50 lines to stay within budget
     const envLines = envExample.split('\n').slice(0, 50).join('\n');
     parts.push(envLines);
   }
 
   // ── 5. Context files ──────────────────────────────────────────────────────
-  if (contextFiles.length) {
+  if (contextFiles?.length) {
     parts.push(`\n=== CONTEXT FILES ===`);
     contextFiles.forEach(f => {
       parts.push(`\n--- ${f.name} ---`);
@@ -180,7 +182,6 @@ export function buildMasterPrompt(req: GenerateMasterRequest): MasterPromptResul
         `${i + 1}. ${brick.name}${brick.description ? ` — ${brick.description}` : ''}`,
       );
     } else {
-      // Unknown/custom section — pass it through as-is
       parts.push(`${i + 1}. ${id}`);
     }
   });
