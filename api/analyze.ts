@@ -12,6 +12,7 @@ import { withSentry } from './_lib/withSentry.js';
 import { minifyContext } from './_lib/utils.js';
 import { RepoAnalyzer } from './_lib/intelligence/repo-analyzer.js';
 import admin from 'firebase-admin';
+import { withAuth, type AuthenticatedRequest } from './_lib/middleware/withAuth.js';
 
 if (!admin.apps.length) {
   try {
@@ -63,21 +64,9 @@ const isImportantFile = (fileName: string): boolean =>
 // ------------------------------------------------------------------
 // Main handler
 // ------------------------------------------------------------------
-async function handler(request: VercelRequest, response: VercelResponse) {
+async function handler(request: AuthenticatedRequest, response: VercelResponse) {
   if (request.method !== 'POST') {
     return response.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // Rate limiting (keyed on IP — will move to uid once auth middleware lands)
-  const ip = (request.headers['x-forwarded-for'] as string) || 'anonymous';
-  const rateLimitResult = await checkRateLimit(ip);
-
-  if (!rateLimitResult.allowed) {
-    return response.status(429).json({
-      success: false,
-      error: 'Rate limit exceeded. Please try again later.',
-      resetAt: rateLimitResult.resetAt,
-    });
   }
 
   let repoProfile: any = null;
@@ -170,6 +159,17 @@ async function handler(request: VercelRequest, response: VercelResponse) {
         );
       }
       const repoDetails = await repoDetailsRes.json();
+      
+      // 🛡️ Enforce Private Repo Paywall
+      if (repoDetails.private && !request.auth.tierConfig.allowPrivateRepos) {
+        return response.status(403).json({
+          success: false,
+          error: 'private_repo_paywall',
+          message: 'Private repositories require the Pro plan.',
+          upgradeRequired: 'pro',
+        });
+      }
+
       const defaultBranch = repoDetails.default_branch || 'main';
 
       // 2. Full recursive file tree
@@ -328,4 +328,4 @@ async function fetchKeyFileContents(
 }
 
 // ✅ Export must be the last line
-export default withSentry(handler);
+export default withSentry(withAuth(handler as any, { consumeCredit: false }));

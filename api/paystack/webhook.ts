@@ -109,9 +109,24 @@ async function handler(
   }
 
   try {
-    // Only handle charge.success events
+    // Handle downgrades
+    if (event.event === 'subscription.disable' || event.event === 'charge.failed') {
+      // In subscription.disable, customer metadata might hold the uid
+      const uid = event.data?.customer?.metadata?.userId || event.data?.metadata?.userId;
+      if (uid && db) {
+        await db.collection('users').doc(uid).update({
+          tier: 'free',
+          subscriptionStatus: 'inactive',
+          tierUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        logger.warn(`[WEBHOOK] Downgraded user ${uid} to free due to ${event.event}.`);
+      }
+      return response.status(200).send('OK');
+    }
+
+    // Only handle charge.success events for upgrades
     if (event.event !== 'charge.success') {
-      logger.debug('[WEBHOOK] Ignoring non-charge.success event', { event: event.event });
+      logger.debug('[WEBHOOK] Ignoring unhandled event', { event: event.event });
       return response.status(200).send('OK');
     }
 

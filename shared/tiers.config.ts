@@ -1,69 +1,64 @@
-/**
- * THE SINGLE SOURCE OF TRUTH FOR TIER CONFIGURATION
- * Imported by BOTH frontend and backend. No duplication ever again.
- */
-
-export const TIERS = {
-  free: {
-    id: 'free' as const,
-    name: 'Free',
-    generationsPerMonth: 5,
-    maxRepoSizeMB: 50,
-    sectionSelectEnabled: false,
-    historyDays: 7,
-    price: 0,
-  },
-  pro: {
-    id: 'pro' as const,
-    name: 'Pro',
-    generationsPerMonth: 50,
-    maxRepoSizeMB: 500,
-    sectionSelectEnabled: true,
-    historyDays: 90,
-    price: 6000,        // in kobo (₦60)
-    paystackPlanCode: 'PLN_xxxxx',
-  },
-  lifetime: {
-    id: 'lifetime' as const,
-    name: 'Lifetime',
-    generationsPerMonth: Infinity,
-    maxRepoSizeMB: 1000,
-    sectionSelectEnabled: true,
-    historyDays: Infinity,
-    price: 600000,      // in kobo (₦6000 one-time)
-  },
-} as const;
-
-export type TierId = keyof typeof TIERS;
+// shared/tiers.config.ts
+export type TierId = 'anonymous' | 'free' | 'pro' | 'agency';
 
 export interface TierConfig {
-  id: string;
+  id: TierId;
   name: string;
   generationsPerMonth: number;
   maxRepoSizeMB: number;
-  sectionSelectEnabled: boolean;
+  allowPrivateRepos: boolean;
+  premiumSectionsEnabled: boolean;
   historyDays: number;
-  price: number;
+  removeWatermark: boolean;
+  priceMonthlyNGN: number; // In Kobo for Paystack
   paystackPlanCode?: string;
 }
 
-/**
- * Get tier config by ID
- */
-export function getTierConfig(tierId: TierId): TierConfig {
-  return TIERS[tierId] as unknown as TierConfig;
-}
-
-/**
- * Check if a tier has unlimited generations
- */
-export function hasUnlimitedGenerations(tierId: TierId): boolean {
-  return TIERS[tierId].generationsPerMonth === Infinity;
-}
-
-/**
- * Get the price for a tier in kobo
- */
-export function getTierPrice(tierId: TierId): number {
-  return TIERS[tierId].price;
-}
+export const TIERS: Record<TierId, TierConfig> = {
+  anonymous: {
+    id: 'anonymous',
+    name: 'Guest',
+    generationsPerMonth: 3,
+    maxRepoSizeMB: 50,
+    allowPrivateRepos: false,
+    premiumSectionsEnabled: false,
+    historyDays: 0,
+    removeWatermark: false,
+    priceMonthlyNGN: 0,
+  },
+  free: {
+    id: 'free',
+    name: 'Hobbyist',
+    generationsPerMonth: 10,
+    maxRepoSizeMB: 100,
+    allowPrivateRepos: false,
+    premiumSectionsEnabled: false,
+    historyDays: 7,
+    removeWatermark: false,
+    priceMonthlyNGN: 0,
+  },
+  pro: {
+    id: 'pro',
+    name: 'Pro Freelancer',
+    generationsPerMonth: 100,
+    maxRepoSizeMB: 500,
+    allowPrivateRepos: true,
+    premiumSectionsEnabled: true,
+    historyDays: 365,
+    removeWatermark: true,
+    priceMonthlyNGN: 1000000, // ₦10,000 in Kobo
+    paystackPlanCode: 'PLN_PRO_MONTHLY_PLACEHOLDER', // Replace with real code
+  },
+  agency: {
+    id: 'agency',
+    name: 'Agency Team',
+    generationsPerMonth: 500,
+    maxRepoSizeMB: 2000,
+    allowPrivateRepos: true,
+    premiumSectionsEnabled: true,
+    historyDays: Infinity,
+    removeWatermark: true,
+    priceMonthlyNGN: 3500000, // ₦35,000 in Kobo
+    paystackPlanCode: 'PLN_AGENCY_MONTHLY_PLACEHOLDER', // Replace with real code
+  },
+} as const;

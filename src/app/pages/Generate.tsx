@@ -137,7 +137,7 @@ function StepIndicator({ step }: { step: WizardStep }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function Step1({ onNext }: { onNext: (repoUrl: string, data: AnalysisResult) => void }) {
-  const { isLoggedIn } = useApp();
+  const { isLoggedIn, openWaitlist } = useApp();
   const [url, setUrl]           = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
@@ -169,19 +169,19 @@ function Step1({ onNext }: { onNext: (repoUrl: string, data: AnalysisResult) => 
     setError('');
     setLoading(true);
     try {
-      const token = await getFirebaseToken();
-      const res = await fetch('/api/analyze', {
+      const res = await secureFetch('/api/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ repoUrl: url }),
+        body: JSON.stringify({ repoUrl: url, isPrivateRepo: false }), // In future, check URL or let backend deduce
       });
       const data = await res.json();
       if (data.success) {
         onNext(url, data.data as AnalysisResult);
       } else {
+        if (data.error === 'private_repo_paywall') {
+          openWaitlist('private-repos');
+          setLoading(false);
+          return;
+        }
         setError(res.status === 429 ? 'Too many requests. Please try again later.' : (data.error || 'Failed to analyze repository'));
       }
     } catch {
@@ -515,7 +515,7 @@ function Step4({
   bypassCache: boolean;
   onDone: (result: GenerationResult) => void;
 }) {
-  const { sessionId, refreshUsage } = useApp();
+  const { sessionId, refreshUsage, openWaitlist } = useApp();
 
   // Visual-only per-section states — driven by timers, not real calls
   const [sectionStates, setSectionStates] = useState<Record<string, SectionVisualState>>(
@@ -584,6 +584,10 @@ function Step4({
         const data = await res.json();
 
         if (!data.success) {
+          if (data.error === 'premium_section_paywall') {
+            openWaitlist('advanced-sections');
+            return;
+          }
           throw new Error(
             res.status === 429
               ? 'Usage limit reached. Please try again later.'
