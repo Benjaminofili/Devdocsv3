@@ -4,6 +4,7 @@ interface CheckoutParams {
   email: string;
   amount: number; // in Kobo
   userId: string;
+  plan?: string;  // Paystack plan code e.g. PLN_xxx
 }
 
 interface PaystackResponse {
@@ -27,7 +28,7 @@ export const usePaystackCheckout = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, amount, userId }),
+        body: JSON.stringify({ email, amount, userId, plan }),
       });
 
       if (!response.ok) {
