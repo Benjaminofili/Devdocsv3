@@ -1,5 +1,5 @@
-import type { GenerateMasterRequest, RepoProfile, MinifiedPackageJson } from '../validators/schemas.js';
-import { SECTION_BRICKS } from '../bricks/index.js';
+import type { GenerateMasterRequest, RepoProfile, MinifiedPackageJson } from '../../validators/schemas.js';
+import { SECTION_BRICKS } from '../../bricks/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

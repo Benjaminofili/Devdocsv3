@@ -43,14 +43,21 @@ export const RepoDataSchema = z.object({
   hasCI: z.boolean().optional(),
 });
 
-// Generate Request Schema
-export const GenerateRequestSchema = z.object({
-  sectionId: z.string().min(1, 'Section ID is required'),
-  stack: DetectedStackSchema,
+// V3 Master Generate Request Schema
+export const GenerateMasterSchema = z.object({
   projectName: z.string().min(1, 'Project name is required'),
-  repoUrl: z.string().url().optional().or(z.literal('')),
-  repoData: RepoDataSchema.optional(),
-  isFirstSection: z.boolean().optional(),
+  repoUrl: z.string().optional(),
+  selectedSectionIds: z.array(z.string()).min(1, 'At least one section is required'),
+  stack: DetectedStackSchema,
+  repoProfile: z.any().optional(),
+  packageJson: z.record(z.string(), z.unknown()).optional(),
+  envExample: z.string().optional(),
+  contextFiles: z.array(z.object({
+    name: z.string(),
+    content: z.string(),
+  })).max(5).optional().default([]),
+  fallbackStrategy: z.enum(['skip', 'placeholder']).optional().default('placeholder'),
+  bypassCache: z.boolean().optional().default(false),
 });
 
 // Analyze Request Schema
@@ -71,7 +78,7 @@ export const ClearCacheRequestSchema = z.object({
 });
 
 // Type exports
-export type GenerateRequest = z.infer<typeof GenerateRequestSchema>;
+export type GenerateMasterRequest = z.infer<typeof GenerateMasterSchema>;
 export type AnalyzeRequest = z.infer<typeof AnalyzeRequestSchema>;
 export type ClearCacheRequest = z.infer<typeof ClearCacheRequestSchema>;
 export type DetectedStackInput = z.infer<typeof DetectedStackSchema>;

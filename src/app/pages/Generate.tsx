@@ -14,6 +14,7 @@ import { Link } from 'react-router';
 import { useApp } from '../context/AppContext';
 import { Confetti } from '../components/Confetti';
 import { auth } from '../../lib/firebase/auth';
+import { secureFetch } from '../../lib/secureFetch';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -572,11 +573,9 @@ function Step4({
           bypassCache,
         };
 
-        const res = await fetch('/api/generate', {
+        const res = await secureFetch('/api/generate', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
             'x-session-id': sessionId ?? '',
           },
           body: JSON.stringify(payload),
