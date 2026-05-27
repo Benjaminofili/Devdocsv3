@@ -177,12 +177,10 @@ async function handler(
       console.log('🧠 V2 Analysis Complete:', repoProfile);
 
       // 5️⃣ Fetch high‑value key file contents
-      const fetched = await fetchKeyFileContents(repoUrl, repoProfile.keyFiles, headers);
+      const fetched = await fetchKeyFileContents(repoUrl, repoProfile.keyFiles, headers, defaultBranch);
       fileContents = fetched.fileContents;
       contextFiles = fetched.contextFiles;
 
-      // Preserve repoProfile for response
-      (response as any)._repoProfile = repoProfile;
     } else if (files) {
       fileContents = files;
     }
@@ -195,7 +193,7 @@ async function handler(
     const suggestedSections = getSectionsForStack(stack);
     const filteredSections = filterSectionsByFeatures(
         suggestedSections,
-        (response as any)._repoProfile?.features ?? {}
+        repoProfile?.features ?? {}
     );
 
     const packageJsonFile = fileContents.find(f => f.name === 'package.json');
@@ -255,7 +253,7 @@ async function handler(
 
     return response.status(200).json({
       success: true,
-      data: { ...result, repoProfile: (response as any)._repoProfile },
+      data: { ...result, repoProfile },
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -408,18 +406,15 @@ async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise
 async function fetchKeyFileContents(
   repoUrl: string,
   keyFiles: string[],
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  defaultBranch: string
 ): Promise<{ fileContents: FileContent[]; contextFiles: { name: string; content: string }[] }> {
   const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (!match) throw new Error('Invalid GitHub URL');
   const [, owner, repo] = match;
   const cleanRepo = repo.replace('.git', '');
 
-  // Get default branch (repeat fetch, cheap compared to many file fetches)
-  const repoDetailsRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
-  if (!repoDetailsRes.ok) throw new Error('Repo not found');
-  const repoDetails = await repoDetailsRes.json();
-  const defaultBranch = repoDetails.default_branch;
+  // Use provided defaultBranch directly, no extra fetch needed
 
   const fileContents: FileContent[] = [];
   const contextFiles: { name: string; content: string }[] = [];
