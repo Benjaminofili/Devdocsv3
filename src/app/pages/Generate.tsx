@@ -15,6 +15,8 @@ import { useApp } from '../context/AppContext';
 import { Confetti } from '../components/Confetti';
 import { auth } from '../../lib/firebase/auth';
 import { secureFetch } from '../../lib/secureFetch';
+import { UpgradeModal } from '../components/UpgradeModal';
+import type { TierId } from '../../shared/tiers.config';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -136,8 +138,8 @@ function StepIndicator({ step }: { step: WizardStep }) {
 // (unchanged from V2 except internal token helper is now shared)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Step1({ onNext }: { onNext: (repoUrl: string, data: AnalysisResult) => void }) {
-  const { isLoggedIn, openWaitlist } = useApp();
+function Step1({ onNext, onUpgrade }: { onNext: (repoUrl: string, data: AnalysisResult) => void, onUpgrade: (reason: any) => void }) {
+  const { isLoggedIn } = useApp();
   const [url, setUrl]           = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
@@ -178,7 +180,7 @@ function Step1({ onNext }: { onNext: (repoUrl: string, data: AnalysisResult) => 
         onNext(url, data.data as AnalysisResult);
       } else {
         if (data.error === 'private_repo_paywall') {
-          openWaitlist('private-repos');
+          onUpgrade('private-repos');
           setLoading(false);
           return;
         }
@@ -380,13 +382,14 @@ function Step2({ repoUrl, stack, onNext, onBack }: { repoUrl: string; stack: any
 // Step 3 — Section Selector (unchanged visually)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Step3({ selectedSections, onToggle, onNext, onBack }: {
+function Step3({ selectedSections, onToggle, onNext, onBack, onUpgrade }: {
   selectedSections: string[];
   onToggle: (id: string) => void;
   onNext: () => void;
   onBack: () => void;
+  onUpgrade: (reason: any) => void;
 }) {
-  const { tier, openWaitlist } = useApp();
+  const { tier } = useApp();
 
   const canAccess = (section: Section) => {
     if (section.tier === 'anonymous') return true;
@@ -421,7 +424,7 @@ function Step3({ selectedSections, onToggle, onNext, onBack }: {
               <div className="flex-shrink-0">
                 {locked ? (
                   <button
-                    onClick={() => openWaitlist('advanced-sections')}
+                    onClick={() => onUpgrade('premium-sections')}
                     className="w-5 h-5 rounded flex items-center justify-center bg-zinc-700 border border-zinc-600 text-zinc-500 hover:text-zinc-300 transition-colors"
                   >
                     <Lock className="w-3 h-3" />
@@ -464,7 +467,7 @@ function Step3({ selectedSections, onToggle, onNext, onBack }: {
 
               {locked && (
                 <button
-                  onClick={() => openWaitlist('advanced-sections')}
+                  onClick={() => onUpgrade('premium-sections')}
                   className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors text-xs"
                 >
                   <Lock className="w-3 h-3" /> Unlock
@@ -514,8 +517,9 @@ function Step4({
   analysisResult: AnalysisResult;
   bypassCache: boolean;
   onDone: (result: GenerationResult) => void;
+  onUpgrade: (reason: any) => void;
 }) {
-  const { sessionId, refreshUsage, openWaitlist } = useApp();
+  const { sessionId, refreshUsage } = useApp();
 
   // Visual-only per-section states — driven by timers, not real calls
   const [sectionStates, setSectionStates] = useState<Record<string, SectionVisualState>>(
@@ -584,8 +588,8 @@ function Step4({
         const data = await res.json();
 
         if (!data.success) {
-          if (data.error === 'premium_section_paywall') {
-            openWaitlist('advanced-sections');
+          if (data.error === 'premium_section_paywall' || data.error === 'usage_limit') {
+            onUpgrade(data.error === 'usage_limit' ? 'usage-limit' : 'premium-sections');
             return;
           }
           throw new Error(
@@ -963,6 +967,15 @@ const stepVariants = {
 };
 
 export function Generate() {
+  const [upgradeModal, setUpgradeModal] = useState<{
+    isOpen: boolean;
+    targetTier: TierId;
+    reason: 'private-repos' | 'premium-sections' | 'usage-limit' | null;
+  }>({ 
+    isOpen: false, 
+    targetTier: 'pro', 
+    reason: null 
+  });
   const [step,             setStep]             = useState<WizardStep>(1);
   const [repoUrl,          setRepoUrl]           = useState('');
   const [analysisResult,   setAnalysisResult]    = useState<AnalysisResult | null>(null);
@@ -1035,7 +1048,7 @@ export function Generate() {
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div key="step1" variants={stepVariants} initial="initial" animate="animate" exit="exit">
-              <Step1 onNext={handleAnalysisDone} />
+              <Step1 onNext={handleAnalysisDone} onUpgrade={(reason) => setUpgradeModal({ isOpen: true, targetTier: 'pro', reason })} />
             </motion.div>
           )}
           {step === 2 && analysisResult && (
@@ -1055,6 +1068,7 @@ export function Generate() {
                 onToggle={toggleSection}
                 onNext={() => setStep(4)}
                 onBack={() => setStep(2)}
+                onUpgrade={(reason) => setUpgradeModal({ isOpen: true, targetTier: 'pro', reason })}
               />
             </motion.div>
           )}
@@ -1068,6 +1082,7 @@ export function Generate() {
                 analysisResult={analysisResult}
                 bypassCache={isRegenerating}
                 onDone={handleGenerationDone}
+                onUpgrade={(reason) => setUpgradeModal({ isOpen: true, targetTier: 'pro', reason })}
               />
             </motion.div>
           )}
@@ -1084,6 +1099,13 @@ export function Generate() {
           )}
         </AnimatePresence>
       </div>
+
+      <UpgradeModal
+        isOpen={upgradeModal.isOpen}
+        onClose={() => setUpgradeModal(prev => ({ ...prev, isOpen: false }))}
+        targetTier={upgradeModal.targetTier}
+        triggerReason={upgradeModal.reason}
+      />
     </div>
   );
 }
