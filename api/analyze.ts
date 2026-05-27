@@ -73,6 +73,9 @@ async function handler(
   const ip = (request.headers['x-forwarded-for'] as string) || 'anonymous';
   const rateLimitResult = await checkRateLimit(ip);
 
+  // Ensure repoProfile is always defined for later use
+  let repoProfile: any = null;
+
   if (!rateLimitResult.allowed) {
     return response.status(429).json({
       success: false,
@@ -172,7 +175,8 @@ async function handler(
 
       // 4️⃣ Run the V2 Intelligence Engine!
       const analyzer = new RepoAnalyzer(treeData.tree);
-      const repoProfile = analyzer.analyze();
+      repoProfile = analyzer.analyze();
+
 
       console.log('🧠 V2 Analysis Complete:', repoProfile);
 
@@ -250,159 +254,10 @@ async function handler(
     }
 
     logger.info('📊 Analysis complete', { stack: stack.primary });
-
-    return response.status(200).json({
-      success: true,
-      data: { ...result, repoProfile },
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ Analysis error:', errorMessage);
-    return response.status(500).json({ error: 'Failed to analyze repository', details: errorMessage });
-  }
-}
-
-export default withSentry(handler);
+};
 
 
-async function fetchRepoContents(repoUrl: string, githubToken?: string): Promise<{ fileContents: FileContent[], contextFiles: { name: string, content: string }[] }> {
-  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
-  if (!match) throw new Error('Invalid GitHub URL');
 
-  const [, owner, repo] = match;
-  const cleanRepo = repo.replace('.git', '');
-
-  // 1. Strict Token Validation
-  const envToken = getEnv().GITHUB_TOKEN;
-  const activeToken = githubToken || envToken;
-  const validToken = (typeof activeToken === 'string' && activeToken.trim().length > 15 && activeToken !== 'undefined' && activeToken !== 'null') 
-    ? activeToken.trim() 
-    : null;
-
-  const headers: Record<string, string> = {
-    'Accept': 'application/vnd.github.v3+json',
-    'User-Agent': GITHUB_CONFIG.USER_AGENT || 'DevDocs-V3'
-  };
-
-  if (validToken) {
-    headers['Authorization'] = `token ${validToken}`;
-  }
-
-  const fileContents: FileContent[] = [];
-  const contextFiles: { name: string, content: string }[] = [];
-  const url = `https://api.github.com/repos/${owner}/${cleanRepo}/contents`;
-
-  // 2. The Fetch with Auto-Retry for Public Repos
-  let rootResponse = await fetch(url, { headers });
-
-  if (rootResponse.status === 401 && validToken) {
-    console.warn(`[GITHUB FETCH] Token rejected (401). Retrying as unauthenticated request for public fallback...`);
-    delete headers['Authorization'];
-    rootResponse = await fetch(url, { headers });
-  }
-
-  if (!rootResponse.ok) {
-    console.error(`[GITHUB FETCH ERROR] ${rootResponse.status} for URL: ${url}`);
-    throw new Error(`Failed to fetch repository: ${rootResponse.status} ${rootResponse.statusText}`);
-  }
-
-  const rootContents: GitHubFile[] = await rootResponse.json() as GitHubFile[];
-
-  // 3. Hydrate Context (High-value files)
-  const highValueRegex = /(^|\/)(package\.json|requirements\.txt|models\.py|schema\.prisma|seed_data\.py)$/i;
-  const matchedHighValue = rootContents
-    .filter(f => highValueRegex.test(f.name) && f.type === 'file')
-    .slice(0, 4);
-
-  for (const file of matchedHighValue) {
-    if (file.download_url) {
-      try {
-        const fileResponse = await fetch(file.download_url, { headers });
-        if (fileResponse.ok) {
-          const rawContent = await fileResponse.text();
-          contextFiles.push({
-            name: file.name,
-            content: minifyContext(rawContent, file.name)
-          });
-          logger.info(`[CONTEXT] Hydrated ${file.name}`);
-        }
-      } catch (e) {
-        logger.warn(`Failed to hydrate context for ${file.name}`);
-      }
-    }
-  }
-
-  // 4. Fetch Important Files for Analysis
-  for (const file of rootContents) {
-    if (isImportantFile(file.name) && file.type === 'file' && file.download_url) {
-      try {
-        const fileResponse = await fetch(file.download_url, { headers });
-        if (fileResponse.ok) {
-          const content = await fileResponse.text();
-          fileContents.push({ name: file.name, content });
-        }
-      } catch (error) {
-        fileContents.push({ name: file.name, content: '' });
-      }
-    }
-  }
-
-  const importantDirs = GITHUB_CONFIG.IMPORTANT_DIRECTORIES;
-
-  for (const dir of importantDirs) {
-    const dirEntry = rootContents.find(f => f.name === dir && f.type === 'dir');
-
-    if (dirEntry) {
-      try {
-        const dirResponse = await fetch(
-          `https://api.github.com/repos/${owner}/${cleanRepo}/contents/${dir}`,
-          { headers }
-        );
-
-        if (dirResponse.ok) {
-          const dirContents: GitHubFile[] = await dirResponse.json() as GitHubFile[];
-          for (const file of dirContents) {
-            fileContents.push({
-              name: `${dir}/${file.name}`,
-              content: ''
-            });
-          }
-        }
-      } catch (error) {
-        // Ignore errors
-      }
-    }
-  }
-
-  try {
-    const workflowResponse = await fetch(
-      `https://api.github.com/repos/${owner}/${cleanRepo}/contents/.github/workflows`,
-      { headers }
-    );
-
-    if (workflowResponse.ok) {
-      const workflows: GitHubFile[] = await workflowResponse.json() as GitHubFile[];
-      for (const file of workflows) {
-        fileContents.push({
-          name: `.github/workflows/${file.name}`,
-          content: ''
-        });
-      }
-    }
-  } catch {
-    // No workflows
-  }
-
-  for (const file of rootContents) {
-    if (!fileContents.some(f => f.name === file.name)) {
-      fileContents.push({ name: file.name, content: '' });
-    }
-  }
-
-  return { fileContents, contextFiles };
-}
-
-// New helper to fetch the raw contents of key files identified by RepoAnalyzer
 async function fetchKeyFileContents(
   repoUrl: string,
   keyFiles: string[],
@@ -438,3 +293,4 @@ async function fetchKeyFileContents(
   }
   return { fileContents, contextFiles };
 }
+export default withSentry(handler);
