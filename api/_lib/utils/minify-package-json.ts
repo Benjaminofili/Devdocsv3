@@ -1,16 +1,6 @@
 import type { MinifiedPackageJson } from '../validators/schemas.js';
 
-export function minifyContext(code: string, fileName: string): string {
-  if (fileName.endsWith('.json')) {
-    try { return JSON.stringify(JSON.parse(code)); } catch { return code.substring(0, 1500); }
-  }
-  return code
-    .replace(/#.*$/gm, '') // Remove Python comments
-    .replace(/\/\/.*$/gm, '') // Remove JS/TS single-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '') // Remove JS/TS block comments
-    .replace(/^\s*[\r\n]/gm, '') // Remove empty lines
-    .substring(0, 1500); // Strict 1500 character token cap
-}
+const MAX_DEPS = 30; // hard cap per bucket to stay within token budget
 
 /**
  * Strips a raw package.json down to the fields that matter for README generation.
@@ -54,7 +44,7 @@ export function minifyPackageJson(
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return undefined;
     const entries = Object.entries(obj as Record<string, unknown>)
       .filter((e): e is [string, string] => typeof e[1] === 'string')
-      .slice(0, 30);
+      .slice(0, MAX_DEPS);
     return entries.length ? Object.fromEntries(entries) : undefined;
   };
 
