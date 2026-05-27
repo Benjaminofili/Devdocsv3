@@ -17,7 +17,7 @@ if (!admin.apps.length) {
   try {
     const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!serviceAccountVar) {
-      throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable");
+      throw new Error('Missing FIREBASE_SERVICE_ACCOUNT environment variable');
     }
     const serviceAccount = JSON.parse(serviceAccountVar);
     admin.initializeApp({
@@ -26,7 +26,7 @@ if (!admin.apps.length) {
     console.log('[FIREBASE] Successfully initialized in analyze.ts');
   } catch (error) {
     console.error('[FIREBASE INIT ERROR IN ANALYZE]', error);
-    // Don't throw here, just log, so public repos can still be analyzed without Firebase
+    // Don't throw — public repos can still be analyzed without Firebase
   }
 }
 
@@ -57,24 +57,20 @@ interface GitHubFile {
   download_url: string | null;
 }
 
-const isImportantFile = (fileName: string): boolean => {
-  return (GITHUB_CONFIG.IMPORTANT_FILES as readonly string[]).includes(fileName);
-};
+const isImportantFile = (fileName: string): boolean =>
+  (GITHUB_CONFIG.IMPORTANT_FILES as readonly string[]).includes(fileName);
 
-async function handler(
-  request: VercelRequest,
-  response: VercelResponse,
-) {
+// ------------------------------------------------------------------
+// Main handler
+// ------------------------------------------------------------------
+async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== 'POST') {
     return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Rate limiting
+  // Rate limiting (keyed on IP — will move to uid once auth middleware lands)
   const ip = (request.headers['x-forwarded-for'] as string) || 'anonymous';
   const rateLimitResult = await checkRateLimit(ip);
-
-  // Ensure repoProfile is always defined for later use
-  let repoProfile: any = null;
 
   if (!rateLimitResult.allowed) {
     return response.status(429).json({
@@ -84,39 +80,47 @@ async function handler(
     });
   }
 
+  let repoProfile: any = null;
+
   try {
     const parseResult = AnalyzeRequestSchema.safeParse(request.body);
-
     if (!parseResult.success) {
-      return response.status(400).json({ error: 'Invalid request', details: parseResult.error.format() });
+      return response.status(400).json({
+        error: 'Invalid request',
+        details: parseResult.error.format(),
+      });
     }
 
     const { repoUrl, files } = parseResult.data;
     let githubToken = (request.body as any).githubToken;
 
-    // Fallback: Fetch token from Firestore if we have a Firebase session
+    // Server-side token retrieval — never trust a client-provided token value
     if (!githubToken && auth && db) {
       const authHeader = request.headers.authorization;
       if (authHeader?.startsWith('Bearer ')) {
         try {
           const idToken = authHeader.split(' ')[1];
-          const decodedToken = await auth.verifyIdToken(idToken);
-          const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+          const decoded = await auth.verifyIdToken(idToken);
+          const userDoc = await db.collection('users').doc(decoded.uid).get();
           const userData = userDoc.data();
+
           if (userData?.githubTokenEncrypted) {
             githubToken = decrypt(userData.githubTokenEncrypted);
           } else if (userData?.githubToken) {
-            githubToken = userData.githubToken; // Fallback for old data
+            // TODO: migrate legacy plaintext tokens — encrypt on next write
+            githubToken = userData.githubToken;
           }
+
           if (githubToken) {
-            logger.info('Successfully retrieved fallback token from Firestore');
+            logger.info('token_retrieved', { uid: decoded.uid });
           }
         } catch (e) {
-          console.error("Failed to fetch fallback token from Firestore:", e);
+          logger.warn('token_retrieval_failed', { error: String(e) });
         }
       }
     }
 
+    // Cache check
     let cacheKey = '';
     if (repoUrl) {
       cacheKey = `analyze:${repoUrl}`;
@@ -128,60 +132,74 @@ async function handler(
     }
 
     let fileContents: FileContent[] = [];
-    let contextFiles: { name: string, content: string }[] = [];
+    let contextFiles: { name: string; content: string }[] = [];
 
     const envToken = getEnv().GITHUB_TOKEN;
     const activeToken = githubToken || envToken;
-    const validToken = (typeof activeToken === 'string' && activeToken.trim().length > 15 && activeToken !== 'undefined' && activeToken !== 'null')
-      ? activeToken.trim()
-      : null;
+    const validToken =
+      typeof activeToken === 'string' &&
+        activeToken.trim().length > 15 &&
+        activeToken !== 'undefined' &&
+        activeToken !== 'null'
+        ? activeToken.trim()
+        : null;
 
     const headers: Record<string, string> = {
       'Accept': 'application/vnd.github.v3+json',
       'User-Agent': GITHUB_CONFIG.USER_AGENT || 'DevDocs-V3',
-      'X-GitHub-Api-Version': '2022-11-28'
+      'X-GitHub-Api-Version': '2022-11-28',
     };
     if (validToken) {
       headers['Authorization'] = `token ${validToken}`;
     }
 
     if (repoUrl) {
-      // New V2 flow: fetch repo tree, analyze, then fetch key files
       const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
       if (!match) throw new Error('Invalid GitHub URL');
       const [, owner, repo] = match;
       const cleanRepo = repo.replace('.git', '');
 
-      // 1️⃣ Fetch repo details to get default branch
-      const repoDetailsRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
+      // 1. Repo details (default branch)
+      const repoDetailsRes = await fetch(
+        `https://api.github.com/repos/${owner}/${cleanRepo}`,
+        { headers },
+      );
       if (!repoDetailsRes.ok) {
-        throw new Error(`GitHub API rejected repo details request: ${repoDetailsRes.status} ${repoDetailsRes.statusText}`);
+        throw new Error(
+          `GitHub API error: ${repoDetailsRes.status} ${repoDetailsRes.statusText}`,
+        );
       }
       const repoDetails = await repoDetailsRes.json();
       const defaultBranch = repoDetails.default_branch || 'main';
 
-      // 2️⃣ Fetch the ENTIRE recursive file tree
-      const treeUrl = `https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`;
-      const treeRes = await fetch(treeUrl, { headers });
+      // 2. Full recursive file tree
+      const treeRes = await fetch(
+        `https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`,
+        { headers },
+      );
       if (!treeRes.ok) {
-        throw new Error(`GitHub Tree API failed: ${treeRes.status} ${treeRes.statusText}`);
+        throw new Error(
+          `GitHub Tree API error: ${treeRes.status} ${treeRes.statusText}`,
+        );
       }
       const treeData = await treeRes.json();
 
-      // 3️⃣ Safety check: Ensure the tree actually exists
       if (!treeData.tree || !Array.isArray(treeData.tree)) {
         throw new Error('Repository is empty or GitHub did not return a valid file tree.');
       }
 
-      // 4️⃣ Run the V2 Intelligence Engine!
+      // 3. Intelligence engine — produces RepoProfile
       const analyzer = new RepoAnalyzer(treeData.tree);
       repoProfile = analyzer.analyze();
+      logger.info('repo_analysis_complete', { repoUrl });
 
-
-      console.log('🧠 V2 Analysis Complete:', repoProfile);
-
-      // 5️⃣ Fetch high‑value key file contents
-      const fetched = await fetchKeyFileContents(repoUrl, repoProfile.keyFiles, headers, defaultBranch);
+      // 4. Fetch high-value file contents
+      const fetched = await fetchKeyFileContents(
+        repoUrl,
+        repoProfile.keyFiles,
+        headers,
+        defaultBranch,
+      );
       fileContents = fetched.fileContents;
       contextFiles = fetched.contextFiles;
 
@@ -189,23 +207,22 @@ async function handler(
       fileContents = files;
     }
 
-    const analyzer = new StackAnalyzer(fileContents);
-    const stack = analyzer.analyze();
+    const stackAnalyzer = new StackAnalyzer(fileContents);
+    const stack = stackAnalyzer.analyze();
     stack.contextFiles = contextFiles;
 
-    // Determine suggested sections based on stack
     const suggestedSections = getSectionsForStack(stack);
     const filteredSections = filterSectionsByFeatures(
-        suggestedSections,
-        repoProfile?.features ?? {}
+      suggestedSections,
+      repoProfile?.features ?? {},
     );
 
     const packageJsonFile = fileContents.find(f => f.name === 'package.json');
     const existingReadme = fileContents.find(f =>
-      f.name.toLowerCase() === 'readme.md' || f.name.toLowerCase() === 'readme'
+      f.name.toLowerCase() === 'readme.md' || f.name.toLowerCase() === 'readme',
     );
     const envExample = fileContents.find(f =>
-      f.name === '.env.example' || f.name === '.env.sample'
+      f.name === '.env.example' || f.name === '.env.sample',
     );
 
     let packageJson: Record<string, unknown> | undefined;
@@ -213,7 +230,7 @@ async function handler(
       try {
         packageJson = JSON.parse(packageJsonFile.content);
       } catch {
-        logger.warn('Failed to parse package.json');
+        logger.warn('package_json_parse_failed');
       }
     }
 
@@ -226,19 +243,19 @@ async function handler(
       hasDocker: fileContents.some(f =>
         f.name === 'Dockerfile' ||
         f.name === 'docker-compose.yml' ||
-        f.name === 'docker-compose.yaml'
+        f.name === 'docker-compose.yaml',
       ),
       hasTests: fileContents.some(f =>
         f.name.includes('test') ||
         f.name.includes('spec') ||
         f.name.includes('__tests__') ||
         f.name.includes('.test.') ||
-        f.name.includes('.spec.')
+        f.name.includes('.spec.'),
       ),
       hasCI: fileContents.some(f =>
         f.name.includes('.github/workflows') ||
         f.name.includes('.gitlab-ci') ||
-        f.name.includes('azure-pipelines')
+        f.name.includes('azure-pipelines'),
       ),
     };
 
@@ -253,23 +270,37 @@ async function handler(
       await redis.set(cacheKey, result, { ex: 900 });
     }
 
-    logger.info('📊 Analysis complete', { stack: stack.primary });
-};
+    logger.info('analysis_complete', { stack: stack.primary });
 
+    // ✅ Return the response
+    return response.status(200).json({
+      success: true,
+      data: { ...result, repoProfile },
+    });
 
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('analysis_failed', { error: message });
+    return response.status(500).json({
+      error: 'Failed to analyze repository',
+      details: message,
+    });
+  }
+} // ← handler closed
 
+// ------------------------------------------------------------------
+// Helper: fetch key file contents from GitHub raw
+// ------------------------------------------------------------------
 async function fetchKeyFileContents(
   repoUrl: string,
   keyFiles: string[],
   headers: Record<string, string>,
-  defaultBranch: string
+  defaultBranch: string,
 ): Promise<{ fileContents: FileContent[]; contextFiles: { name: string; content: string }[] }> {
   const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (!match) throw new Error('Invalid GitHub URL');
   const [, owner, repo] = match;
   const cleanRepo = repo.replace('.git', '');
-
-  // Use provided defaultBranch directly, no extra fetch needed
 
   const fileContents: FileContent[] = [];
   const contextFiles: { name: string; content: string }[] = [];
@@ -279,18 +310,22 @@ async function fetchKeyFileContents(
       const rawUrl = `https://raw.githubusercontent.com/${owner}/${cleanRepo}/${defaultBranch}/${filePath}`;
       const res = await fetch(rawUrl, { headers });
       if (!res.ok) continue;
+
       const text = await res.text();
+      const baseName = filePath.split('/').pop() || '';
+
       fileContents.push({ name: filePath, content: text });
 
-      // If this file is considered important, also add to contextFiles (minified)
-      const baseName = filePath.split('/').pop() || '';
       if (isImportantFile(baseName)) {
         contextFiles.push({ name: baseName, content: minifyContext(text, baseName) });
       }
-    } catch (e) {
-      // ignore individual file errors
+    } catch {
+      // Skip individual file errors — don't abort the whole analysis
     }
   }
+
   return { fileContents, contextFiles };
 }
+
+// ✅ Export must be the last line
 export default withSentry(handler);
