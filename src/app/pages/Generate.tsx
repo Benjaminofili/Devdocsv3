@@ -569,7 +569,7 @@ function Step4({
           packageJson:  analysisResult.repoData?.packageJson,
           envExample:   analysisResult.repoData?.envExample,
           contextFiles,
-          fallbackStrategy: 'placeholder' as const,
+          fallbackStrategy: 'skip' as const,
           bypassCache,
         };
 

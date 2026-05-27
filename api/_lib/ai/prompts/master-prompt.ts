@@ -85,13 +85,11 @@ ABSOLUTE RULES — violating any of these is a critical failure:
    Do not add extra sections, headings, or commentary outside those sections.
 2. Do not output anything other than the Markdown document itself.
    No preamble ("Here is your README…"), no apology, no explanation after the document.
-3. If a section in the BLUEPRINT lacks specific supporting data, write a concise,
-   framework-appropriate best-practice placeholder — do NOT write phrases like
-   "no information was provided" or "this section is unavailable".
-4. Every section must flow naturally into the next. The document must read as if
+3. Every section must flow naturally into the next. The document must read as if
    written by a single senior engineer in one sitting, not assembled from fragments.
-5. Use real badge URLs where appropriate (shields.io). Never invent fake URLs for
+4. Use real badge URLs where appropriate (shields.io). Never invent fake URLs for
    code examples, API endpoints, or external services not mentioned in the context.
+5. The very first heading (H1) of the document MUST be the exact Project Name provided in the metadata (e.g., "# SwiftAid"). NEVER use the section title (like "# Project Header") as the H1.
 `.trim();
 
 // ─────────────────────────────────────────────────────────────────────────────
