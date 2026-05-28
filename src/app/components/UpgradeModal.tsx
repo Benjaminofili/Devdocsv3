@@ -68,7 +68,7 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
         'Authorization': `Bearer ${idToken}`
       },
       body: JSON.stringify({
-        email: currentUser.email || user.email,
+        email: "test+newuser@example.com", // temporarily hardcoded for testing
         userId: currentUser.uid,
         plan: selectedPlan,
       }),
