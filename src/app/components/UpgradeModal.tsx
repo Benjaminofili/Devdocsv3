@@ -3,7 +3,7 @@ import { X, Zap, Lock, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TIERS, TierId } from '../../../shared/tiers.config'; // Adjust path if needed
 import { useApp } from '../context/AppContext';
-import { auth } from '../lib/firebase/auth';
+import { auth } from '../../lib/firebase/auth';
 import { toast } from 'sonner';
 
 interface UpgradeModalProps {
