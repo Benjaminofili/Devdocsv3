@@ -65,6 +65,12 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${idToken}`
         },
+        console.log('🔍 Frontend sending to backend:', {
+          email: currentUser.email || user.email,
+          userId: currentUser.uid,
+          plan: selectedPlan,
+          tierConfig: TIERS[selectedPlan],
+        });
         body: JSON.stringify({
           email: currentUser.email || user.email,
           userId: currentUser.uid,
