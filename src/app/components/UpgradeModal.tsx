@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { X, Lock, Zap, CheckCircle, ArrowRight, Shield, GitBranch, Layers } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { usePaystackCheckout } from '../../hooks/usePaystackCheckout';
-import { TIERS, type TierId } from '../../shared/tiers.config';
+import { TIERS, type TierId } from '../../../shared/tiers.config';
 
 // ─── Reason-specific copy ────────────────────────────────────────────────────
 const REASON_COPY: Record<string, { headline: string; subline: string; icon: typeof Lock }> = {
