@@ -1,48 +1,11 @@
-import { useState } from 'react';
-import { X, Lock, Zap, CheckCircle, ArrowRight, Shield, GitBranch, Layers } from 'lucide-react';
+import { useEffect } from 'react';
+import { X, Zap, Lock, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { TIERS, TierId, getTierConfig } from '../../../shared/tiers.config';
 import { useApp } from '../context/AppContext';
-import { usePaystackCheckout } from '../../hooks/usePaystackCheckout';
-import { TIERS, type TierId } from '../../../shared/tiers.config';
+import { auth } from '../lib/firebase/auth';
+import { toast } from 'sonner';
 
-// ─── Reason-specific copy ────────────────────────────────────────────────────
-const REASON_COPY: Record<string, { headline: string; subline: string; icon: typeof Lock }> = {
-  'private-repos': {
-    headline: 'Unlock Private Repositories',
-    subline: 'Analyze and document your proprietary codebase — safely and securely.',
-    icon: Lock,
-  },
-  'premium-sections': {
-    headline: 'Unlock Premium Sections',
-    subline: 'Generate API docs, architecture diagrams, and database schema documentation.',
-    icon: Layers,
-  },
-  'usage-limit': {
-    headline: 'Monthly Limit Reached',
-    subline: 'You\'ve used all your free generations this month. Upgrade to keep building.',
-    icon: Zap,
-  },
-};
-
-// ─── Per-tier feature lists ───────────────────────────────────────────────────
-const TIER_FEATURES: Record<string, string[]> = {
-  pro: [
-    '100 README generations / month',
-    'Private repository support',
-    'Premium sections (API Docs, Architecture, DB Schema)',
-    'Full generation history (1 year)',
-    'No watermark on generated READMEs',
-    'Priority AI processing',
-  ],
-  agency: [
-    '500 README generations / month',
-    'Everything in Pro',
-    'Unlimited generation history',
-    'Team-friendly usage',
-    'Dedicated support',
-  ],
-};
-
-// ─── Props ────────────────────────────────────────────────────────────────────
 interface UpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -50,153 +13,207 @@ interface UpgradeModalProps {
   triggerReason: 'private-repos' | 'premium-sections' | 'usage-limit' | null;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: UpgradeModalProps) {
-  const { user } = useApp();
-  const { initializeCheckout, isLoading, error } = usePaystackCheckout();
-  const [selectedTier, setSelectedTier] = useState<'pro' | 'agency'>(
-    targetTier === 'agency' ? 'agency' : 'pro',
-  );
+  const { user, refreshUser } = useApp();
+  
+  // ✅ Safely get tier config with fallback
+  const tierConfig = targetTier && TIERS[targetTier] ? TIERS[targetTier] : TIERS.pro;
 
-  if (!isOpen) return null;
+  // Format price from Kobo to Naira
+  const formattedPrice = new Intl.NumberFormat('en-NG', {
+    style: 'currency',
+    currency: 'NGN',
+    minimumFractionDigits: 0,
+  }).format(tierConfig.priceMonthlyNGN / 100);
 
-  const tierConfig = TIERS[selectedTier];
-  const reason = triggerReason ? REASON_COPY[triggerReason] : REASON_COPY['usage-limit'];
-  const ReasonIcon = reason.icon;
-
-  const handleUpgrade = async () => {
-    if (!user?.email) {
+  const handleCheckout = async () => {
+    if (!user) {
+      toast.error('Please sign in to upgrade');
       return;
     }
-    await initializeCheckout({
-      email: user.email,
-      amount: tierConfig.priceMonthlyNGN,
-      userId: user.id,
-      plan: tierConfig.paystackPlanCode,
+
+    // ✅ Ensure we have a valid plan
+    const selectedPlan: TierId = targetTier && TIERS[targetTier] ? targetTier : 'pro';
+    const planCode = tierConfig.paystackPlanCode;
+
+    console.log('🔍 Checkout Debug:', {
+      targetTier,
+      selectedPlan,
+      planCode,
+      tierConfig,
+      hasUser: !!user,
     });
+
+    if (!planCode) {
+      toast.error('Payment configuration error. Please contact support.');
+      console.error('❌ Paystack plan code is not defined for tier:', selectedPlan);
+      return;
+    }
+
+    try {
+      toast.loading('Initializing secure checkout...');
+      
+      const res = await fetch('/api/paystack/initialize', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user.getIdToken()}`
+        },
+        body: JSON.stringify({
+          email: user.email,
+          userId: user.uid,
+          plan: selectedPlan, // ✅ Now guaranteed to be valid
+        }),
+      });
+
+      const data = await res.json();
+      
+      toast.dismiss();
+
+      if (!res.ok || !data.authorization_url) {
+        throw new Error(data.error || 'Checkout failed');
+      }
+
+      // Open Paystack Inline Popup
+      if ((window as any).PaystackPop) {
+        const handler = (window as any).PaystackPop.setup({
+          key: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
+          email: user.email,
+          ref: data.reference,
+          callback: () => {
+            toast.success('🎉 Payment successful! Unlocking features...');
+            refreshUser();
+            onClose();
+          },
+          onClose: () => toast.info('Checkout closed'),
+        });
+        handler.openIframe();
+      } else {
+        // Fallback to redirect
+        window.location.href = data.authorization_url;
+      }
+
+    } catch (error) {
+      toast.dismiss();
+      toast.error(error instanceof Error ? error.message : 'Failed to start checkout');
+      console.error('Checkout error:', error);
+    }
   };
 
-  const formatPrice = (kobo: number) => {
-    return `₦${(kobo / 100).toLocaleString('en-NG')}`;
+  const getHeadline = () => {
+    switch (triggerReason) {
+      case 'private-repos': return 'Unlock Private Repositories';
+      case 'premium-sections': return 'Unlock Premium Sections';
+      case 'usage-limit': return "You've reached your monthly limit";
+      default: return `Upgrade to ${tierConfig.name}`;
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/75 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="relative bg-zinc-900 border border-zinc-700/80 rounded-2xl w-full max-w-md shadow-2xl shadow-black/60 overflow-hidden">
-        {/* Gradient accent top bar */}
-        <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500" />
-
-        {/* Header */}
-        <div className="flex items-start justify-between p-6 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-violet-500/20 border border-indigo-500/30 flex items-center justify-center">
-              <ReasonIcon className="w-5 h-5 text-indigo-400" />
-            </div>
-            <div>
-              <h2 className="text-zinc-100 text-base" style={{ fontWeight: 700 }}>
-                {reason.headline}
-              </h2>
-              <p className="text-zinc-500 text-xs mt-0.5 max-w-xs">{reason.subline}</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors flex-shrink-0"
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div 
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }} 
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={onClose}
+        >
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }} 
+            animate={{ scale: 1, opacity: 1 }} 
+            exit={{ scale: 0.95, opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl"
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+            <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-300">
+              <X className="w-5 h-5" />
+            </button>
 
-        <div className="px-6 pb-6 space-y-5">
-          {/* Tier Selector */}
-          <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
-            {(['pro', 'agency'] as const).map((tier) => (
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-indigo-500/20 rounded-lg">
+                <Zap className="w-6 h-6 text-indigo-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-zinc-100">{getHeadline()}</h2>
+                <p className="text-zinc-400 text-sm">Analyze and document your proprietary codebase — safely and securely.</p>
+              </div>
+            </div>
+
+            {/* Plan Tabs */}
+            <div className="grid grid-cols-2 gap-2 mb-6">
               <button
-                key={tier}
-                onClick={() => setSelectedTier(tier)}
-                className={`relative flex flex-col items-center py-2.5 px-3 rounded-lg text-sm transition-all ${
-                  selectedTier === tier
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
-                    : 'text-zinc-400 hover:text-zinc-300'
+                onClick={() => {}} // Could add plan switching logic here
+                className={`p-3 rounded-lg border ${
+                  targetTier === 'pro' 
+                    ? 'bg-indigo-600 border-indigo-500 text-white' 
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-400'
                 }`}
-                style={{ fontWeight: selectedTier === tier ? 600 : 400 }}
               >
-                <span>{TIERS[tier].name}</span>
-                <span className={`text-xs mt-0.5 ${selectedTier === tier ? 'text-indigo-200' : 'text-zinc-600'}`}>
-                  {formatPrice(TIERS[tier].priceMonthlyNGN)} / mo
-                </span>
+                <div className="font-semibold">Pro Freelancer</div>
+                <div className="text-sm">₦6,000 / mo</div>
               </button>
-            ))}
-          </div>
-
-          {/* Features */}
-          <ul className="space-y-2.5">
-            {(TIER_FEATURES[selectedTier] ?? []).map((feature) => (
-              <li key={feature} className="flex items-center gap-3 text-sm text-zinc-300">
-                <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                {feature}
-              </li>
-            ))}
-          </ul>
-
-          {/* No user logged in warning */}
-          {!user && (
-            <div className="flex items-center gap-2.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-              <Shield className="w-4 h-4 text-amber-400 flex-shrink-0" />
-              <p className="text-amber-300 text-xs">
-                Please <span className="font-semibold">log in with GitHub</span> first to upgrade your account.
-              </p>
+              <button
+                onClick={() => {}}
+                className={`p-3 rounded-lg border ${
+                  targetTier === 'agency' 
+                    ? 'bg-indigo-600 border-indigo-500 text-white' 
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+                }`}
+              >
+                <div className="font-semibold">Agency Team</div>
+                <div className="text-sm">₦35,000 / mo</div>
+              </button>
             </div>
-          )}
 
-          {/* Error */}
-          {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs text-center">
-              {error}
+            {/* Features List */}
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-2 text-sm text-zinc-300">
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>{tierConfig.generationsPerMonth} README generations / month</span>
+              </div>
+              {tierConfig.allowPrivateRepos && (
+                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>Private repository support</span>
+                </div>
+              )}
+              {tierConfig.premiumSectionsEnabled && (
+                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>Premium sections (API Docs, Architecture, DB Schema)</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-sm text-zinc-300">
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>Full generation history ({tierConfig.historyDays === Infinity ? 'unlimited' : `${tierConfig.historyDays} days`})</span>
+              </div>
+              {tierConfig.removeWatermark && (
+                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>No watermark on generated READMEs</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-sm text-zinc-300">
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>Priority AI processing</span>
+              </div>
             </div>
-          )}
 
-          {/* CTA */}
-          <button
-            onClick={handleUpgrade}
-            disabled={isLoading || !user}
-            className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white rounded-xl transition-all shadow-lg shadow-indigo-500/20 disabled:shadow-none"
-            style={{ fontWeight: 600 }}
-          >
-            {isLoading ? (
-              <>
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Redirecting to Paystack…
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4" />
-                Upgrade to {TIERS[selectedTier].name}
-                <ArrowRight className="w-4 h-4 ml-auto" />
-              </>
-            )}
-          </button>
-
-          {/* Trust footer */}
-          <div className="flex items-center justify-center gap-4 pt-1">
-            <div className="flex items-center gap-1.5 text-zinc-600 text-xs">
-              <Shield className="w-3 h-3" />
-              <span>Secured by Paystack</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-zinc-600 text-xs">
-              <GitBranch className="w-3 h-3" />
-              <span>Cancel anytime</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+            {/* Upgrade Button */}
+            <button
+              onClick={handleCheckout}
+              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <Zap className="w-4 h-4" /> Upgrade to {tierConfig.name}
+            </button>
+            
+            <p className="text-center text-zinc-600 text-xs mt-4">
+              Secured by Paystack • Cancel anytime
+            </p>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
