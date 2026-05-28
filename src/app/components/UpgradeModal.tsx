@@ -98,7 +98,89 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
       toast.error(error instanceof Error ? error.message : 'Failed to start checkout');
       console.error('Checkout error:', error);
     }
-  };
+  };const handleCheckout = async () => {
+  if (!user) {
+    toast.error('Please sign in to upgrade');
+    return;
+  }
+
+  // ✅ Safely get tier config
+  const selectedPlan: TierId = targetTier && TIERS[targetTier] ? targetTier : 'pro';
+  const planConfig = TIERS[selectedPlan];
+  const planCode = planConfig?.paystackPlanCode;
+
+  console.log('🔍 Checkout Debug:', {
+    targetTier,
+    selectedPlan,
+    planCode,
+    hasUser: !!user,
+    userEmail: user.email,
+  });
+
+  if (!planCode) {
+    toast.error('Payment configuration error. Please contact support.');
+    return;
+  }
+
+  try {
+    toast.loading('Initializing secure checkout...');
+    
+    // ✅ Get Firebase user and token directly
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('Not authenticated. Please sign in again.');
+    }
+
+    const idToken = await currentUser.getIdToken();
+    
+    const res = await fetch('/api/paystack/initialize', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        email: currentUser.email || user.email,
+        userId: currentUser.uid,
+        plan: selectedPlan,
+      }),
+    });
+
+    const data = await res.json();
+    toast.dismiss();
+
+    if (!res.ok || !data.authorization_url) {
+      throw new Error(data.error || 'Checkout failed');
+    }
+
+    // Open Paystack Inline Popup
+    if ((window as any).PaystackPop) {
+      const handler = (window as any).PaystackPop.setup({
+        key: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
+        email: currentUser.email || user.email,
+        ref: data.reference,
+        callback: () => {
+          toast.success('🎉 Payment successful! Unlocking features...');
+          refreshUser();
+          onClose();
+        },
+        onClose: () => {
+          toast.info('Checkout closed');
+        },
+      });
+      handler.openIframe();
+    } else {
+      // Fallback to redirect
+      window.location.href = data.authorization_url;
+    }
+
+  } catch (error) {
+    toast.dismiss();
+    const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout';
+    toast.error(errorMessage);
+    console.error('Checkout error:', error);
+  }
+};
 
   const getHeadline = () => {
     switch (triggerReason) {
