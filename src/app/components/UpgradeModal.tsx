@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { X, Zap, Lock, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TIERS, TierId, getTierConfig } from '../../../shared/tiers.config';
+import { TIERS, TierId } from '../../../shared/tiers.config'; // Adjust path if needed
 import { useApp } from '../context/AppContext';
 import { auth } from '../lib/firebase/auth';
 import { toast } from 'sonner';
@@ -16,10 +16,9 @@ interface UpgradeModalProps {
 export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: UpgradeModalProps) {
   const { user, refreshUser } = useApp();
   
-  // ✅ Safely get tier config with fallback
+  // Safely get tier config with fallback
   const tierConfig = targetTier && TIERS[targetTier] ? TIERS[targetTier] : TIERS.pro;
 
-  // Format price from Kobo to Naira
   const formattedPrice = new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
@@ -32,42 +31,48 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
       return;
     }
 
-    // ✅ Ensure we have a valid plan
     const selectedPlan: TierId = targetTier && TIERS[targetTier] ? targetTier : 'pro';
-    const planCode = tierConfig.paystackPlanCode;
+    const planConfig = TIERS[selectedPlan];
+    const planCode = planConfig?.paystackPlanCode;
 
     console.log('🔍 Checkout Debug:', {
       targetTier,
       selectedPlan,
       planCode,
-      tierConfig,
       hasUser: !!user,
+      userEmail: user.email,
     });
 
     if (!planCode) {
       toast.error('Payment configuration error. Please contact support.');
-      console.error('❌ Paystack plan code is not defined for tier:', selectedPlan);
       return;
     }
 
     try {
       toast.loading('Initializing secure checkout...');
       
+      // ✅ Get Firebase user and token directly from auth instance
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('Not authenticated. Please sign in again.');
+      }
+
+      const idToken = await currentUser.getIdToken();
+      
       const res = await fetch('/api/paystack/initialize', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await user.getIdToken()}`
+          'Authorization': `Bearer ${idToken}`
         },
         body: JSON.stringify({
-          email: user.email,
-          userId: user.uid,
-          plan: selectedPlan, // ✅ Now guaranteed to be valid
+          email: currentUser.email || user.email,
+          userId: currentUser.uid,
+          plan: selectedPlan,
         }),
       });
 
       const data = await res.json();
-      
       toast.dismiss();
 
       if (!res.ok || !data.authorization_url) {
@@ -78,7 +83,7 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
       if ((window as any).PaystackPop) {
         const handler = (window as any).PaystackPop.setup({
           key: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
-          email: user.email,
+          email: currentUser.email || user.email,
           ref: data.reference,
           callback: () => {
             toast.success('🎉 Payment successful! Unlocking features...');
@@ -95,92 +100,11 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
 
     } catch (error) {
       toast.dismiss();
-      toast.error(error instanceof Error ? error.message : 'Failed to start checkout');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout';
+      toast.error(errorMessage);
       console.error('Checkout error:', error);
     }
-  };const handleCheckout = async () => {
-  if (!user) {
-    toast.error('Please sign in to upgrade');
-    return;
-  }
-
-  // ✅ Safely get tier config
-  const selectedPlan: TierId = targetTier && TIERS[targetTier] ? targetTier : 'pro';
-  const planConfig = TIERS[selectedPlan];
-  const planCode = planConfig?.paystackPlanCode;
-
-  console.log('🔍 Checkout Debug:', {
-    targetTier,
-    selectedPlan,
-    planCode,
-    hasUser: !!user,
-    userEmail: user.email,
-  });
-
-  if (!planCode) {
-    toast.error('Payment configuration error. Please contact support.');
-    return;
-  }
-
-  try {
-    toast.loading('Initializing secure checkout...');
-    
-    // ✅ Get Firebase user and token directly
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      throw new Error('Not authenticated. Please sign in again.');
-    }
-
-    const idToken = await currentUser.getIdToken();
-    
-    const res = await fetch('/api/paystack/initialize', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`
-      },
-      body: JSON.stringify({
-        email: currentUser.email || user.email,
-        userId: currentUser.uid,
-        plan: selectedPlan,
-      }),
-    });
-
-    const data = await res.json();
-    toast.dismiss();
-
-    if (!res.ok || !data.authorization_url) {
-      throw new Error(data.error || 'Checkout failed');
-    }
-
-    // Open Paystack Inline Popup
-    if ((window as any).PaystackPop) {
-      const handler = (window as any).PaystackPop.setup({
-        key: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
-        email: currentUser.email || user.email,
-        ref: data.reference,
-        callback: () => {
-          toast.success('🎉 Payment successful! Unlocking features...');
-          refreshUser();
-          onClose();
-        },
-        onClose: () => {
-          toast.info('Checkout closed');
-        },
-      });
-      handler.openIframe();
-    } else {
-      // Fallback to redirect
-      window.location.href = data.authorization_url;
-    }
-
-  } catch (error) {
-    toast.dismiss();
-    const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout';
-    toast.error(errorMessage);
-    console.error('Checkout error:', error);
-  }
-};
+  };
 
   const getHeadline = () => {
     switch (triggerReason) {
@@ -224,25 +148,11 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
 
             {/* Plan Tabs */}
             <div className="grid grid-cols-2 gap-2 mb-6">
-              <button
-                onClick={() => {}} // Could add plan switching logic here
-                className={`p-3 rounded-lg border ${
-                  targetTier === 'pro' 
-                    ? 'bg-indigo-600 border-indigo-500 text-white' 
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-400'
-                }`}
-              >
+              <button className={`p-3 rounded-lg border ${targetTier === 'pro' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>
                 <div className="font-semibold">Pro Freelancer</div>
                 <div className="text-sm">₦6,000 / mo</div>
               </button>
-              <button
-                onClick={() => {}}
-                className={`p-3 rounded-lg border ${
-                  targetTier === 'agency' 
-                    ? 'bg-indigo-600 border-indigo-500 text-white' 
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-400'
-                }`}
-              >
+              <button className={`p-3 rounded-lg border ${targetTier === 'agency' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>
                 <div className="font-semibold">Agency Team</div>
                 <div className="text-sm">₦35,000 / mo</div>
               </button>
