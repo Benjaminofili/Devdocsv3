@@ -25,92 +25,87 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
     minimumFractionDigits: 0,
   }).format(tierConfig.priceMonthlyNGN / 100);
 
+ 
   const handleCheckout = async () => {
-    if (!user) {
-      toast.error('Please sign in to upgrade');
-      return;
+  if (!user) {
+    toast.error('Please sign in to upgrade');
+    return;
+  }
+
+  const selectedPlan: TierId = targetTier && TIERS[targetTier] ? targetTier : 'pro';
+  const planConfig = TIERS[selectedPlan];
+  const planCode = planConfig?.paystackPlanCode;
+
+  // ✅ Debug log BEFORE the fetch call (outside the options object!)
+  console.log('🔍 Frontend sending to backend:', {
+    targetTier,
+    selectedPlan,
+    planCode,
+    hasUser: !!user,
+    userEmail: user.email,
+  });
+
+  if (!planCode) {
+    toast.error('Payment configuration error. Please contact support.');
+    return;
+  }
+
+  try {
+    toast.loading('Initializing secure checkout...');
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('Not authenticated. Please sign in again.');
     }
 
-    const selectedPlan: TierId = targetTier && TIERS[targetTier] ? targetTier : 'pro';
-    const planConfig = TIERS[selectedPlan];
-    const planCode = planConfig?.paystackPlanCode;
+    const idToken = await currentUser.getIdToken();
 
-    console.log('🔍 Checkout Debug:', {
-      targetTier,
-      selectedPlan,
-      planCode,
-      hasUser: !!user,
-      userEmail: user.email,
+    // ✅ CORRECT: fetch options object with NO console.log inside
+    const res = await fetch('/api/paystack/initialize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        email: currentUser.email || user.email,
+        userId: currentUser.uid,
+        plan: selectedPlan,
+      }),
     });
 
-    if (!planCode) {
-      toast.error('Payment configuration error. Please contact support.');
-      return;
+    const data = await res.json();
+    toast.dismiss();
+
+    if (!res.ok || !data.authorization_url) {
+      throw new Error(data.error || 'Checkout failed');
     }
 
-    try {
-      toast.loading('Initializing secure checkout...');
-
-      // ✅ Get Firebase user and token directly from auth instance
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error('Not authenticated. Please sign in again.');
-      }
-
-      const idToken = await currentUser.getIdToken();
-
-      const res = await fetch('/api/paystack/initialize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+    // Open Paystack Inline Popup
+    if ((window as any).PaystackPop) {
+      const handler = (window as any).PaystackPop.setup({
+        key: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
+        email: currentUser.email || user.email,
+        ref: data.reference,
+        callback: () => {
+          toast.success('🎉 Payment successful! Unlocking features...');
+          refreshUser();
+          onClose();
         },
-        console.log('🔍 Frontend sending to backend:', {
-          email: currentUser.email || user.email,
-          userId: currentUser.uid,
-          plan: selectedPlan,
-          tierConfig: TIERS[selectedPlan],
-        });
-        body: JSON.stringify({
-          email: currentUser.email || user.email,
-          userId: currentUser.uid,
-          plan: selectedPlan,
-        }),
+        onClose: () => toast.info('Checkout closed'),
       });
-
-      const data = await res.json();
-      toast.dismiss();
-
-      if (!res.ok || !data.authorization_url) {
-        throw new Error(data.error || 'Checkout failed');
-      }
-
-      // Open Paystack Inline Popup
-      if ((window as any).PaystackPop) {
-        const handler = (window as any).PaystackPop.setup({
-          key: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
-          email: currentUser.email || user.email,
-          ref: data.reference,
-          callback: () => {
-            toast.success('🎉 Payment successful! Unlocking features...');
-            refreshUser();
-            onClose();
-          },
-          onClose: () => toast.info('Checkout closed'),
-        });
-        handler.openIframe();
-      } else {
-        // Fallback to redirect
-        window.location.href = data.authorization_url;
-      }
-
-    } catch (error) {
-      toast.dismiss();
-      const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout';
-      toast.error(errorMessage);
-      console.error('Checkout error:', error);
+      handler.openIframe();
+    } else {
+      window.location.href = data.authorization_url;
     }
-  };
+
+  } catch (error) {
+    toast.dismiss();
+    const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout';
+    toast.error(errorMessage);
+    console.error('Checkout error:', error);
+  }
+};
 
   const getHeadline = () => {
     switch (triggerReason) {
