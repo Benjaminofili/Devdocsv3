@@ -15,7 +15,7 @@ interface UpgradeModalProps {
 
 export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: UpgradeModalProps) {
   const { user, refreshUser } = useApp();
-  
+
   // Safely get tier config with fallback
   const tierConfig = targetTier && TIERS[targetTier] ? TIERS[targetTier] : TIERS.pro;
 
@@ -50,7 +50,7 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
 
     try {
       toast.loading('Initializing secure checkout...');
-      
+
       // ✅ Get Firebase user and token directly from auth instance
       const currentUser = auth.currentUser;
       if (!currentUser) {
@@ -58,10 +58,10 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
       }
 
       const idToken = await currentUser.getIdToken();
-      
+
       const res = await fetch('/api/paystack/initialize', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${idToken}`
         },
@@ -118,16 +118,16 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div 
-          initial={{ opacity: 0 }} 
-          animate={{ opacity: 1 }} 
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
           onClick={onClose}
         >
-          <motion.div 
-            initial={{ scale: 0.95, opacity: 0 }} 
-            animate={{ scale: 1, opacity: 1 }} 
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             onClick={(e) => e.stopPropagation()}
             className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl"
@@ -199,7 +199,7 @@ export function UpgradeModal({ isOpen, onClose, targetTier, triggerReason }: Upg
             >
               <Zap className="w-4 h-4" /> Upgrade to {tierConfig.name}
             </button>
-            
+
             <p className="text-center text-zinc-600 text-xs mt-4">
               Secured by Paystack • Cancel anytime
             </p>
