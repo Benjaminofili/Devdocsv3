@@ -37,6 +37,7 @@ interface AppState {
   openWaitlist: (feature: string) => void;
   closeWaitlist: () => void;
   setSessionId: (id: string) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const DEFAULT_USAGE = (tier: UserTier = 'anonymous'): UsageInfo => ({
@@ -73,6 +74,18 @@ export const useApp = create<AppState>((set, get) => ({
 
   logout: async () => {
     await firebaseLogout();
+  },
+
+  // Refresh the authenticated user and update state
+  refreshUser: async () => {
+    const current = auth.currentUser;
+    if (current) {
+      const mappedUser = await mapFirebaseUser(current);
+      useApp.setState({ user: mappedUser, tier: mappedUser.tier, isLoggedIn: true });
+    } else {
+      // No auth user, clear state
+      useApp.setState({ user: null, tier: 'anonymous', isLoggedIn: false });
+    }
   },
 
   refreshUsage: async () => {

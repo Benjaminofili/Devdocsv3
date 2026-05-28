@@ -32,6 +32,16 @@ async function handler(request: VercelRequest, response: VercelResponse) {
   try {
     // ✅ Look up the tier config
     const tierConfig = TIERS[plan as TierId];
+
+    // ✅ Debug logging for Paystack init
+    console.log('[PAYSTACK/INIT] Debug info:', {
+      email,
+      userId,
+      plan,
+      planCode: tierConfig?.paystackPlanCode,
+      secretKeyPrefix: process.env.PAYSTACK_SECRET_KEY?.substring(0, 8) + '...',
+      mode: process.env.PAYSTACK_SECRET_KEY?.startsWith('sk_test_') ? 'TEST' : 'LIVE',
+    });
     
     if (!tierConfig?.paystackPlanCode) {
       return response.status(400).json({ error: 'Invalid plan selected' });
