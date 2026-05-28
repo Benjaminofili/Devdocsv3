@@ -20,32 +20,34 @@ async function handler(request: VercelRequest, response: VercelResponse) {
     return response.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { email, userId, plan, amount } = request.body;
+  const { email, userId, plan } = request.body; // ✅ Removed 'amount' from destructuring
 
-  // Accept either plan OR amount
-  if (!email || !userId || (!plan && !amount)) {
+  // Validate required fields
+  if (!email || !userId || !plan) {
     return response.status(400).json({
-      error: 'Missing required fields: email, userId, and either plan or amount',
+      error: 'Missing required fields: email, userId, and plan',
     });
   }
 
   try {
-    let paystackPayload: any = {
+    // ✅ Look up the tier config
+    const tierConfig = TIERS[plan as TierId];
+    
+    if (!tierConfig?.paystackPlanCode) {
+      return response.status(400).json({ error: 'Invalid plan selected' });
+    }
+
+    // ✅ Build payload: ONLY send 'plan' when using Paystack Plans
+    // Do NOT include 'amount' - Paystack will use the plan's price automatically
+    const paystackPayload = {
       email,
+      plan: tierConfig.paystackPlanCode, // ✅ This is all Paystack needs for plans
       metadata: {
         firebaseUid: userId,
-        plan: plan || 'free',
+        plan: plan,
       },
       callback_url: `${request.headers.origin}/dashboard?payment=success`,
     };
-
-    if (plan && TIERS[plan as TierId]?.paystackPlanCode) {
-      paystackPayload.plan = TIERS[plan as TierId].paystackPlanCode;
-    } else if (amount) {
-      paystackPayload.amount = amount;
-    } else {
-      return response.status(400).json({ error: 'Invalid payment configuration' });
-    }
 
     const paystackResponse = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
@@ -59,9 +61,11 @@ async function handler(request: VercelRequest, response: VercelResponse) {
     const data = await paystackResponse.json();
 
     if (!paystackResponse.ok || !data.status) {
-      return response
-        .status(paystackResponse.status)
-        .json({ error: 'Paystack Initialization Failed', details: data.message || 'Unknown error' });
+      console.error('[PAYSTACK] Initialize failed:', data);
+      return response.status(paystackResponse.status).json({
+        error: 'Paystack Initialization Failed',
+        details: data.message || 'Unknown error',
+      });
     }
 
     return response.status(200).json({
